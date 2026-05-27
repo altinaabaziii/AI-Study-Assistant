@@ -1,0 +1,82 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1035 >>
+stream
+BT
+/F1 14 Tf
+72 760 Td
+18 TL
+(StudyMateAI - Material testues) Tj
+T*
+() Tj
+T*
+(StudyMateAI eshte nje asistent studimi me GenAI.) Tj
+T*
+(Ai lexon dokumente PDF, ndan tekstin ne pjese te vogla,) Tj
+T*
+(krijon embeddings me modelin all-MiniLM-L6-v2 dhe i ruan ne FAISS.) Tj
+T*
+() Tj
+T*
+(Kur studenti ben nje pyetje, sistemi kerkon pjeset me relevante) Tj
+T*
+(nga dokumenti dhe perdor modelin google/flan-t5-base per te gjeneruar pergjigje.) Tj
+T*
+() Tj
+T*
+(Ky projekt perdor vetem mjete falas dhe open-source.) Tj
+T*
+(Nuk perdor OpenAI API.) Tj
+T*
+() Tj
+T*
+(English summary:) Tj
+T*
+(StudyMateAI is a GenAI study assistant.) Tj
+T*
+(It reads PDF files, creates embeddings, stores them in FAISS,) Tj
+T*
+(retrieves relevant chunks, and answers questions with google/flan-t5-base.) Tj
+T*
+(This project uses free and open-source tools.) Tj
+T*
+(This project does not use the OpenAI API.) Tj
+T*
+() Tj
+T*
+(Shembull pyetje:) Tj
+T*
+(What does StudyMateAI do?) Tj
+T*
+(Which model creates embeddings?) Tj
+T*
+(Does this project use OpenAI API?) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1398
+%%EOF
