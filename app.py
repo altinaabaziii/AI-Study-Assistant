@@ -1,8 +1,14 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+import time
 
+import mlflow
 import streamlit as st
 from pypdf import PdfReader
+
+
+MLFLOW_EXPERIMENT_NAME = "StudyMateAI"
+MAX_PARAM_LENGTH = 250
 
 
 st.set_page_config(
@@ -52,6 +58,31 @@ def reset_outputs():
     """Clear old outputs when a new PDF is processed."""
     for key in ("answer", "summary", "quiz"):
         st.session_state.pop(key, None)
+
+
+def short_text(text, max_length=MAX_PARAM_LENGTH):
+    """Keep MLflow params small and readable."""
+    text = " ".join(str(text).split())
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
+def log_mlflow_event(action, input_text, output_text, response_time):
+    """Log one user action to MLflow without interrupting the app."""
+    try:
+        mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+
+        with mlflow.start_run(run_name=action):
+            mlflow.log_param("action", action)
+            mlflow.log_param("pdf_name", st.session_state.get("pdf_name", ""))
+            mlflow.log_param("input_preview", short_text(input_text))
+            mlflow.log_metric("response_time_seconds", round(response_time, 3))
+            mlflow.log_text(str(input_text), f"{action}_input.txt")
+            mlflow.log_text(str(output_text), f"{action}_output.txt")
+
+    except Exception as exc:
+        st.warning(f"MLflow logging failed: {exc}")
 
 
 build_index, ask_question = load_rag_functions()
@@ -120,7 +151,12 @@ with left_column:
     if ask_clicked:
         with st.spinner("Searching the PDF and generating an answer..."):
             try:
-                st.session_state["answer"] = ask_question(question.strip())
+                start_time = time.perf_counter()
+                answer = ask_question(question.strip())
+                response_time = time.perf_counter() - start_time
+
+                st.session_state["answer"] = answer
+                log_mlflow_event("question", question.strip(), answer, response_time)
             except Exception as exc:
                 st.error(f"Could not answer question: {exc}")
 
@@ -146,8 +182,16 @@ with right_column:
     if summarize_clicked:
         with st.spinner("Creating summary..."):
             try:
-                st.session_state["summary"] = summarize_text(
-                    st.session_state["pdf_text"]
+                start_time = time.perf_counter()
+                summary = summarize_text(st.session_state["pdf_text"])
+                response_time = time.perf_counter() - start_time
+
+                st.session_state["summary"] = summary
+                log_mlflow_event(
+                    "summary",
+                    st.session_state["pdf_text"],
+                    summary,
+                    response_time,
                 )
             except Exception as exc:
                 st.error(f"Could not create summary: {exc}")
@@ -155,7 +199,17 @@ with right_column:
     if quiz_clicked:
         with st.spinner("Creating quiz..."):
             try:
-                st.session_state["quiz"] = generate_quiz(st.session_state["pdf_text"])
+                start_time = time.perf_counter()
+                quiz = generate_quiz(st.session_state["pdf_text"])
+                response_time = time.perf_counter() - start_time
+
+                st.session_state["quiz"] = quiz
+                log_mlflow_event(
+                    "quiz",
+                    st.session_state["pdf_text"],
+                    quiz,
+                    response_time,
+                )
             except Exception as exc:
                 st.error(f"Could not create quiz: {exc}")
 
