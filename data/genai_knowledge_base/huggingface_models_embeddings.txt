@@ -1,0 +1,18 @@
+Source basis: Hugging Face Documentation and course materials.
+
+Hugging Face provides open-source libraries and model hubs for machine learning
+and Generative AI. The Transformers library can load text generation models such
+as FLAN-T5. FLAN-T5 is a text-to-text model, which means it receives text as
+input and generates text as output.
+
+Sentence Transformers are commonly used to create embeddings. An embedding is a
+numeric representation of text. Similar meanings should have similar vectors.
+The model sentence-transformers/all-MiniLM-L6-v2 is a small embedding model that
+is useful for beginner RAG projects.
+
+Embeddings are not answers by themselves. They help a system search for relevant
+text. After relevant chunks are found, a language model can use those chunks as
+context to answer a question.
+
+Open-source models can run locally, but they still need enough memory and may
+download model files the first time they are used.

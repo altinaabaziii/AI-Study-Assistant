@@ -1,0 +1,18 @@
+Source basis: course materials, Hugging Face Documentation, LangChain Documentation, and Databricks Documentation.
+
+Generative AI, also called GenAI, is a type of artificial intelligence that can
+create new content such as text, code, images, audio, summaries, explanations,
+and answers. It learns patterns from data and then generates new outputs from a
+user prompt or task.
+
+A Large Language Model, or LLM, is a model trained to understand and generate
+text. LLMs are often used in GenAI applications such as chat assistants,
+summarization tools, coding assistants, and question-answering systems.
+
+Prompt engineering means writing clear instructions for a model. Context
+engineering means choosing the right information to give the model, such as
+retrieved documents, examples, tool results, and system rules.
+
+RAG, or Retrieval-Augmented Generation, combines search with generation. It first
+retrieves relevant study material and then asks a language model to answer using
+that material.

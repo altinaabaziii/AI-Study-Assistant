@@ -1,0 +1,20 @@
+Source basis: course materials and public Generative AI documentation.
+
+Prompt engineering is the practice of writing instructions that guide a language
+model toward a useful answer. A good prompt explains the task, the audience, the
+format, and the limits. For a study assistant, the prompt should say to answer
+in simple language and to avoid inventing facts.
+
+Context engineering is broader than prompt writing. It means designing what
+information the model receives. This can include retrieved documents, examples,
+conversation history, tool results, user profile, and system instructions.
+Good context engineering gives the model the right information at the right time.
+
+Evaluation checks whether a GenAI system is useful, correct, safe, and grounded
+in the provided material. Common checks include answer relevance, faithfulness
+to sources, latency, cost, security, and user feedback.
+
+Security is important because GenAI systems can expose sensitive data or follow
+bad instructions. Teams should protect private data, limit tool access, filter
+unsafe inputs, avoid logging secrets, and test for prompt injection. Prompt
+injection is when a user or document tries to override the assistant rules.

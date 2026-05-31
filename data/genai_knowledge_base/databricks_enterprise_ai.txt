@@ -1,0 +1,21 @@
+Source basis: Databricks Documentation and course materials.
+
+Enterprise AI means building AI systems that can be used safely inside an organization.
+For Generative AI, enterprise systems usually need governance, access control,
+monitoring, evaluation, and clear ownership of data and models.
+
+Databricks provides tools for the data and AI lifecycle. MLflow is used to track
+experiments, parameters, metrics, prompts, models, and evaluation results.
+Unity Catalog is used for governance. It helps teams manage permissions,
+discover data and AI assets, and control access to tables, files, features,
+models, and functions.
+
+In a GenAI project, governance matters because prompts, retrieved documents,
+model outputs, and user feedback can include sensitive information. A team
+should control who can read source data, who can deploy models, and who can
+view logs. Evaluation should happen before deployment and continue after
+deployment.
+
+Agent Bricks is a Databricks approach for creating and optimizing domain-specific
+AI agents. The goal is to help teams build agents that use enterprise data,
+tools, and evaluation instead of acting like unrestricted chatbots.

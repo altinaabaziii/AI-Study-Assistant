@@ -1,0 +1,23 @@
+Source basis: LangChain Documentation and course materials.
+
+RAG means Retrieval-Augmented Generation. A RAG system retrieves relevant
+information from a knowledge source and gives it to a language model as context.
+This helps the model answer from approved material instead of relying only on
+what it learned during training.
+
+A basic RAG pipeline has these steps:
+1. Load documents.
+2. Split text into chunks.
+3. Create embeddings for each chunk.
+4. Store embeddings in a vector index such as FAISS.
+5. Embed the user question.
+6. Retrieve the most similar chunks.
+7. Ask a language model to answer using the retrieved context.
+
+An AI agent is a system that can use a model to decide what action to take next.
+Agents may call tools, search data, run functions, or ask for clarification.
+A multi-agent system uses more than one agent. Each agent can have a different
+role, such as planner, researcher, evaluator, or executor.
+
+Agents need boundaries. For enterprise AI, agents should use approved tools,
+follow permissions, log important actions, and be evaluated before production use.

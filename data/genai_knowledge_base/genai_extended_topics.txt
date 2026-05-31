@@ -1,0 +1,40 @@
+Source basis: course materials, Databricks Documentation, Hugging Face Documentation, and LangChain Documentation.
+
+Prompt engineering helps a model follow instructions. A strong prompt usually
+contains the role, task, context, output format, examples, and constraints.
+
+Context engineering is the design of all information sent to the model. It can
+include retrieved documents, system rules, memory, examples, tool outputs, user
+profile, and safety instructions.
+
+Vector search compares embeddings to find text with similar meaning. FAISS is a
+local vector search library that can store embedding vectors and search them
+quickly.
+
+AI agents use a model to decide steps and call tools. A safe agent should have
+clear boundaries, approved tools, access control, logging, and evaluation.
+
+Multi-agent systems split work across several agents. For example, one agent can
+plan, another can retrieve information, another can write an answer, and another
+can evaluate the result.
+
+MLflow helps teams track experiments, prompts, metrics, artifacts, models, and
+evaluation results. This is useful because GenAI systems need comparison and
+repeatability.
+
+Unity Catalog helps govern data and AI assets. Governance is important because
+GenAI applications may use sensitive documents, prompts, logs, models, and tool
+outputs.
+
+Evaluation checks if answers are relevant, correct, grounded in sources, safe,
+and fast enough. RAG evaluation often checks retrieval quality and answer
+faithfulness.
+
+Security for GenAI includes protecting private data, preventing prompt injection,
+limiting tool access, avoiding secret leakage, and monitoring model outputs.
+
+Hallucination happens when a model creates an answer that is not supported by
+the provided material. RAG, good prompts, and evaluation can reduce hallucination.
+
+Tokens are small pieces of text used by language models. Prompts, retrieved
+context, and generated answers all use tokens.

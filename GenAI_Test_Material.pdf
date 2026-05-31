@@ -1,0 +1,153 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 2696 >>
+stream
+BT
+/F1 11 Tf
+56 748 Td
+15 TL
+(GenAI Study Assistant - Material testues) Tj
+T*
+() Tj
+T*
+(Generative AI, ose GenAI, eshte AI qe krijon permbajtje te re.) Tj
+T*
+(Ajo mund te krijoje tekst, permbledhje, kod, ide, shpjegime dhe pergjigje.) Tj
+T*
+() Tj
+T*
+(LLM eshte Large Language Model.) Tj
+T*
+(LLM trajnohet me tekst dhe perdoret per te kuptuar e gjeneruar gjuhe natyrore.) Tj
+T*
+(Shembuj te perdorimit jane chatbot, permbledhje, kerkim ne dokumente dhe ndihme ne kodim.) Tj
+T*
+() Tj
+T*
+(Prompt engineering eshte menyra si shkruajme udhezime te qarta per modelin.) Tj
+T*
+(Nje prompt i mire tregon rolin, detyren, formatin e pergjigjes dhe kufizimet.) Tj
+T*
+() Tj
+T*
+(Context engineering eshte zgjedhja e informacionit qe i jepet modelit.) Tj
+T*
+(Konteksti mund te perfshije dokumente, shembuj, rregulla sistemi, histori bisede dhe rezultate nga tools.) Tj
+T*
+() Tj
+T*
+(Embeddings jane perfaqesime numerike te tekstit.) Tj
+T*
+(Tekste me kuptim te ngjashem duhet te kene embeddings te ngjashme.) Tj
+T*
+(Modeli sentence-transformers/all-MiniLM-L6-v2 mund te perdoret per te krijuar embeddings.) Tj
+T*
+() Tj
+T*
+(Vector search perdoret per te gjetur tekstin me kuptim me te afert me pyetjen.) Tj
+T*
+(FAISS eshte librari lokale per ruajtje dhe kerkim te vektoreve.) Tj
+T*
+() Tj
+T*
+(RAG do te thote Retrieval-Augmented Generation.) Tj
+T*
+(Ne RAG, sistemi fillimisht ndan dokumentin ne chunks.) Tj
+T*
+(Pastaj krijon embeddings per cdo chunk dhe i ruan ne FAISS.) Tj
+T*
+(Kur studenti ben pyetje, sistemi gjen chunks me relevante.) Tj
+T*
+(Modeli gjuhesor perdor chunks si kontekst per te kthyer pergjigje.) Tj
+T*
+() Tj
+T*
+(AI agent eshte sistem qe perdor modelin per te zgjedhur hapa dhe per te perdorur tools.) Tj
+T*
+(Nje multi-agent system ka disa agjente me role te ndryshme.) Tj
+T*
+(Shembull: nje agent planifikon, nje kerkon informacion, nje shkruan pergjigjen dhe nje e vlereson.) Tj
+T*
+() Tj
+T*
+(MLflow perdoret per te ruajtur eksperimente, parametra, metrika, modele dhe rezultate vleresimi.) Tj
+T*
+(Ne GenAI, MLflow mund te ruaje pyetje, prompts, pergjigje dhe kohen e pergjigjes.) Tj
+T*
+() Tj
+T*
+(Unity Catalog perdoret per governance te te dhenave dhe aseteve AI.) Tj
+T*
+(Governance ndihmon ne kontrollin e aksesit, pronesine e te dhenave dhe sigurine.) Tj
+T*
+() Tj
+T*
+(Evaluation kontrollon nese pergjigjet jane te sakta, relevante, te sigurta dhe te bazuara ne burime.) Tj
+T*
+(RAG evaluation kontrollon cilesine e retrieval dhe nese pergjigjja mbeshtetet ne dokumente.) Tj
+T*
+() Tj
+T*
+(Security ne GenAI perfshin mbrojtjen e te dhenave, kufizimin e tools dhe mbrojtjen nga prompt injection.) Tj
+T*
+(Prompt injection ndodh kur nje input tenton te ndryshoje rregullat e sistemit.) Tj
+T*
+() Tj
+T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 8 0 R >>
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+8 0 obj
+<< /Length 329 >>
+stream
+BT
+/F1 11 Tf
+56 748 Td
+15 TL
+(Agent Bricks eshte qasje per ndertimin dhe optimizimin e AI agents per enterprise.) Tj
+T*
+(Enterprise AI kerkon governance, evaluation, monitoring, siguri dhe kontroll aksesi.) Tj
+T*
+() Tj
+T*
+(Ky material perdor vetem mjete falas dhe open-source.) Tj
+T*
+(Ky material nuk perdor OpenAI API.) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+0000003065 00000 n 
+0000003191 00000 n 
+0000003261 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+3641
+%%EOF
