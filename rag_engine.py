@@ -1,8 +1,8 @@
 from pathlib import Path
+from collections import Counter
+import math
 import re
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-GENERATION_MODEL_NAME = "google/flan-t5-small"
 KNOWLEDGE_BASE_DIR = Path("data/genai_knowledge_base")
 
 OUT_OF_SCOPE_MESSAGE = "This assistant is designed only for Generative AI topics."
@@ -330,6 +330,27 @@ STOP_WORDS = {
     "to",
     "what",
     "why",
+    "cfare",
+    "cfa",
+    "cka",
+    "qka",
+    "thote",
+    "tregon",
+    "sipas",
+    "pdf",
+    "material",
+    "materiali",
+    "cilin",
+    "cila",
+    "cili",
+    "ben",
+    "bene",
+    "perdor",
+    "perdoret",
+    "përdor",
+    "përdoret",
+    "uses",
+    "used",
     "with",
     "nje",
     "një",
@@ -352,30 +373,14 @@ class GenAIStudyRAG:
     """Small RAG engine for a domain-specific GenAI study assistant."""
 
     def __init__(self):
-        self.embedding_model = None
-        self.tokenizer = None
-        self.generator = None
-        self.device = None
         self.chunks = []
         self.sources = []
+        self.source_kinds = []
+        self.uploaded_source_names = set()
         self.index = None
-
-    def load_embedding_model(self):
-        if self.embedding_model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-
-    def load_generation_model(self):
-        if self.tokenizer is None or self.generator is None:
-            import torch
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.tokenizer = AutoTokenizer.from_pretrained(GENERATION_MODEL_NAME)
-            self.generator = AutoModelForSeq2SeqLM.from_pretrained(
-                GENERATION_MODEL_NAME
-            ).to(self.device)
+        self.idf = {}
+        self.chunk_vectors = []
+        self.chunk_norms = []
 
     def read_pdf(self, pdf_path):
         from pypdf import PdfReader
@@ -390,6 +395,7 @@ class GenAIStudyRAG:
                     {
                         "text": page_text,
                         "source": f"{Path(pdf_path).name}, page {page_number}",
+                        "kind": "uploaded",
                     }
                 )
 
@@ -397,7 +403,7 @@ class GenAIStudyRAG:
 
     def read_text_file(self, text_path):
         text = Path(text_path).read_text(encoding="utf-8")
-        return [{"text": text, "source": Path(text_path).name}]
+        return [{"text": text, "source": Path(text_path).name, "kind": "knowledge_base"}]
 
     def read_knowledge_base(self, kb_dir=KNOWLEDGE_BASE_DIR):
         kb_path = Path(kb_dir)
@@ -412,49 +418,97 @@ class GenAIStudyRAG:
         return documents
 
     def split_text(self, text, source, chunk_size=140, overlap=30):
-        words = text.split()
+        sentences = self.split_sentences(text)
         chunks = []
-        start = 0
+        current_sentences = []
+        current_size = 0
 
-        while start < len(words):
-            end = start + chunk_size
-            chunk = " ".join(words[start:end]).strip()
-            if chunk:
-                chunks.append({"text": chunk, "source": source})
-            start += chunk_size - overlap
+        for sentence in sentences:
+            sentence_size = len(sentence.split())
+            if current_sentences and current_size + sentence_size > chunk_size:
+                chunks.append({"text": " ".join(current_sentences), "source": source})
+                current_sentences = current_sentences[-2:] if overlap else []
+                current_size = sum(len(item.split()) for item in current_sentences)
+
+            current_sentences.append(sentence)
+            current_size += sentence_size
+
+        if current_sentences:
+            chunks.append({"text": " ".join(current_sentences), "source": source})
 
         return chunks
 
     def build_index(self, pdf_files=None):
+        pdf_files = [Path(pdf_file) for pdf_file in pdf_files or []]
+        self.uploaded_source_names = {pdf_file.name for pdf_file in pdf_files}
         documents = self.read_knowledge_base()
 
-        for pdf_file in pdf_files or []:
+        for pdf_file in pdf_files:
             documents.extend(self.read_pdf(pdf_file))
 
         self.chunks = []
         self.sources = []
+        self.source_kinds = []
 
         for document in documents:
             split_chunks = self.split_text(document["text"], document["source"])
             for chunk in split_chunks:
                 self.chunks.append(chunk["text"])
                 self.sources.append(chunk["source"])
+                self.source_kinds.append(document.get("kind", "knowledge_base"))
 
         if not self.chunks:
             raise ValueError("No text was found in uploaded files or the GenAI knowledge base.")
 
-        self.load_embedding_model()
-        embeddings = self.embedding_model.encode(
-            self.chunks,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        ).astype("float32")
+        self.build_keyword_index()
+        self.index = True
 
-        import faiss
+    def normalize_text(self, text):
+        replacements = {
+            "ë": "e",
+            "Ë": "e",
+            "ç": "c",
+            "Ç": "c",
+            "Ã«": "e",
+            "Ã‹": "e",
+            "Ã§": "c",
+            "Ã‡": "c",
+        }
+        normalized = text.lower()
+        for old, new in replacements.items():
+            normalized = normalized.replace(old, new)
+        return normalized
 
-        vector_size = embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(vector_size)
-        self.index.add(embeddings)
+    def tokenize(self, text):
+        normalized = self.normalize_text(text)
+        terms = re.findall(r"[a-z0-9][a-z0-9_-]+", normalized)
+        return [term for term in terms if term not in STOP_WORDS and len(term) > 2]
+
+    def build_keyword_index(self):
+        tokenized_chunks = [self.tokenize(chunk) for chunk in self.chunks]
+        document_frequency = Counter()
+
+        for terms in tokenized_chunks:
+            document_frequency.update(set(terms))
+
+        total_chunks = max(len(tokenized_chunks), 1)
+        self.idf = {
+            term: math.log((1 + total_chunks) / (1 + frequency)) + 1
+            for term, frequency in document_frequency.items()
+        }
+
+        self.chunk_vectors = []
+        self.chunk_norms = []
+
+        for terms in tokenized_chunks:
+            counts = Counter(terms)
+            vector = {
+                term: count * self.idf.get(term, 1.0)
+                for term, count in counts.items()
+            }
+            norm = math.sqrt(sum(weight * weight for weight in vector.values())) or 1.0
+            self.chunk_vectors.append(vector)
+            self.chunk_norms.append(norm)
 
     def is_genai_question(self, question):
         question_lower = question.lower()
@@ -473,8 +527,7 @@ class GenAIStudyRAG:
         return albanian if language == "sq" else english
 
     def question_terms(self, question):
-        terms = re.findall(r"[a-zA-ZçÇëË][a-zA-ZçÇëË-]+", question.lower())
-        return [term for term in terms if term not in STOP_WORDS and len(term) > 2]
+        return self.tokenize(question)
 
     def contains_alias(self, question_lower, alias):
         if " " in alias or "-" in alias:
@@ -521,6 +574,19 @@ class GenAIStudyRAG:
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
         return [sentence.strip() for sentence in sentences if sentence.strip()]
 
+    def is_answer_sentence(self, sentence):
+        sentence_lower = sentence.lower().strip()
+        if not sentence_lower:
+            return False
+        if sentence_lower.endswith("?"):
+            return False
+        if any(
+            phrase in sentence_lower
+            for phrase in ("shembull pyetje", "english summary", "material testues")
+        ):
+            return False
+        return True
+
     def sentence_score(self, sentence, terms):
         sentence_lower = sentence.lower()
         score = sum(1 for term in terms if term in sentence_lower)
@@ -565,6 +631,8 @@ class GenAIStudyRAG:
 
         for item in retrieved:
             for sentence in self.split_sentences(item["text"]):
+                if not self.is_answer_sentence(sentence):
+                    continue
                 score = self.sentence_score(sentence, terms)
                 if score > 0:
                     candidate_sentences.append((score, sentence))
@@ -594,58 +662,83 @@ class GenAIStudyRAG:
         if self.index is None:
             self.build_index()
 
-        self.load_embedding_model()
-        question_embedding = self.embedding_model.encode(
-            [question],
-            convert_to_numpy=True,
-        ).astype("float32")
+        question_counts = Counter(self.tokenize(question))
+        question_vector = {
+            term: count * self.idf.get(term, 1.0)
+            for term, count in question_counts.items()
+        }
+        question_norm = math.sqrt(
+            sum(weight * weight for weight in question_vector.values())
+        ) or 1.0
 
-        distances, indices = self.index.search(question_embedding, top_k)
+        scored_chunks = []
+        for index_id, vector in enumerate(self.chunk_vectors):
+            shared_terms = question_vector.keys() & vector.keys()
+            score = sum(question_vector[term] * vector[term] for term in shared_terms)
+            score = score / (question_norm * self.chunk_norms[index_id])
+            matched_score = score
+
+            chunk_lower = self.normalize_text(self.chunks[index_id])
+            for concept in self.find_concepts(question):
+                aliases = CONCEPT_ALIASES.get(concept, [])
+                if any(self.normalize_text(alias) in chunk_lower for alias in aliases):
+                    score += 0.05
+                    matched_score += 0.05
+
+            if matched_score > 0 and self.source_kinds[index_id] == "uploaded":
+                score += 0.35
+
+            scored_chunks.append((score, index_id))
+
+        scored_chunks.sort(key=lambda item: item[0], reverse=True)
         retrieved = []
 
-        for distance, index_id in zip(distances[0], indices[0]):
-            if index_id != -1:
-                retrieved.append(
-                    {
-                        "text": self.chunks[index_id],
-                        "source": self.sources[index_id],
-                        "distance": float(distance),
-                    }
-                )
+        for score, index_id in scored_chunks[:top_k]:
+            if score <= 0:
+                continue
+            retrieved.append(
+                {
+                    "text": self.chunks[index_id],
+                    "source": self.sources[index_id],
+                    "kind": self.source_kinds[index_id],
+                    "distance": round(1 - score, 4),
+                }
+            )
 
         return retrieved
 
-    def generate_text(self, prompt, max_new_tokens=180):
-        self.load_generation_model()
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-        )
-        inputs = {name: value.to(self.device) for name, value in inputs.items()}
+    def has_uploaded_material(self):
+        return bool(self.uploaded_source_names)
 
-        output_ids = self.generator.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-        )
-
-        return self.tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+    def has_uploaded_sources(self, sources):
+        return any(source.get("kind") == "uploaded" for source in sources)
 
     def answer_question(self, question):
         language = self.detect_language(question)
+        retrieved = []
 
         if not self.is_genai_question(question):
-            answer = self.message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
-            return {"answer": answer, "sources": []}
+            retrieved = self.retrieve_chunks(question, top_k=2)
+            if not retrieved:
+                answer = self.message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
+                return {"answer": answer, "sources": []}
+
+        if self.has_uploaded_material():
+            retrieved = self.retrieve_chunks(question)
+            uploaded_retrieved = [
+                source for source in retrieved if source.get("kind") == "uploaded"
+            ]
+            if uploaded_retrieved:
+                answer = self.build_fast_answer(question, uploaded_retrieved, language)
+                return {"answer": answer, "sources": uploaded_retrieved}
 
         direct_answer = self.direct_concept_answer(question, language)
         if direct_answer:
             sources = self.retrieve_chunks(question, top_k=2)
             return {"answer": direct_answer, "sources": sources}
 
-        retrieved = self.retrieve_chunks(question)
+        if not retrieved:
+            retrieved = self.retrieve_chunks(question)
         if not retrieved:
             answer = self.message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
             return {"answer": answer, "sources": []}

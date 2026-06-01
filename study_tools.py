@@ -1,3 +1,4 @@
+import hashlib
 import re
 
 
@@ -39,6 +40,47 @@ ALBANIAN_WORDS = {
     "shpjego",
 }
 
+QUESTION_STARTERS = {
+    "cfare",
+    "cka",
+    "qka",
+    "what",
+    "which",
+    "does",
+    "can",
+    "how",
+    "why",
+    "a",
+}
+
+SUBJECT_STOP_WORDS = {
+    "ai",
+    "ajo",
+    "it",
+    "this",
+    "that",
+    "ky",
+    "kjo",
+    "nje",
+    "një",
+    "the",
+    "a",
+    "an",
+    "ai",
+    "ajo",
+    "it",
+    "they",
+    "when",
+    "kur",
+    "mund",
+    "te",
+    "të",
+    "ne",
+    "në",
+    "per",
+    "për",
+}
+
 
 def detect_language(text):
     text_lower = text.lower()
@@ -54,12 +96,39 @@ def message(english, albanian, language):
 
 def split_sentences(text):
     sentences = []
+    paragraphs = []
+    current_lines = []
+    skip_section = False
 
     for line in text.splitlines():
         clean_line = " ".join(line.split())
-        if not clean_line:
+        lower_line = clean_line.lower()
+
+        if "english summary" in lower_line or "shembull pyetje" in lower_line:
+            skip_section = True
+            if current_lines:
+                paragraphs.append(" ".join(current_lines))
+                current_lines = []
             continue
-        line_sentences = re.split(r"(?<=[.!?])\s+", clean_line)
+
+        if skip_section:
+            if not clean_line:
+                skip_section = False
+            continue
+
+        if clean_line:
+            current_lines.append(clean_line)
+        elif current_lines:
+            paragraphs.append(" ".join(current_lines))
+            current_lines = []
+
+    if current_lines:
+        paragraphs.append(" ".join(current_lines))
+
+    for paragraph in paragraphs:
+        paragraph = re.sub(r"\s*[•●]\s*", ". ", paragraph)
+        paragraph = re.sub(r"\s+(?=\d+\s+[A-Z][A-Za-z])", ". ", paragraph)
+        line_sentences = re.split(r"(?<=[.!?])\s+", paragraph)
         sentences.extend(sentence.strip() for sentence in line_sentences)
 
     return [
@@ -73,11 +142,14 @@ def is_learning_sentence(sentence):
     sentence_lower = sentence.lower()
     noise_phrases = [
         "material testues",
+        "source basis",
         "english summary",
         "shembull pyetje",
     ]
 
     if any(phrase in sentence_lower for phrase in noise_phrases):
+        return False
+    if sentence_lower.strip(" .?!").split(" ", 1)[0] in QUESTION_STARTERS:
         return False
 
     return True
@@ -150,14 +222,12 @@ def quiz_question_count(text):
     if word_count < 120:
         return 3
     if word_count < 300:
-        return 6
+        return 5
     if word_count < 600:
-        return 12
+        return 7
     if word_count < 1200:
-        return 12
-    if word_count < 2500:
-        return 14
-    return 15
+        return 8
+    return 8
 
 
 def summarize_text(text):
@@ -165,9 +235,6 @@ def summarize_text(text):
 
     if not text or not text.strip():
         return message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
-
-    if not is_genai_material(text):
-        return message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
 
     concepts = extract_key_concepts(text)
     best_sentences = get_best_sentences(text, limit=6)
@@ -185,6 +252,157 @@ def summarize_text(text):
 
 def clean_answer(text):
     return text.strip().rstrip(".") + "."
+
+
+def compact_text(text, max_words=22):
+    text = " ".join(text.replace("•", " ").split())
+    words = text.split()
+    if len(words) <= max_words:
+        return clean_answer(text)
+    return clean_answer(" ".join(words[:max_words]) + "...")
+
+
+def is_good_quiz_sentence(sentence):
+    words = sentence.split()
+    sentence_lower = sentence.lower()
+
+    if len(words) < 5 or len(words) > 34:
+        return False
+    if sentence_lower.endswith("?"):
+        return False
+    if sentence_lower.startswith(("dr mehmet", "outline of", "recap from", "in other words")):
+        return False
+    if sentence_lower.startswith(("outline", "course introduction", "data management sampling")):
+        return False
+    if sum(1 for char in sentence if char == "•") > 1:
+        return False
+    if len(re.findall(r"\b\d+(?:\.\d+)?\b", sentence)) > 4:
+        return False
+
+    return True
+
+
+def is_fallback_quiz_sentence(sentence):
+    words = sentence.split()
+    sentence_lower = sentence.lower()
+
+    if len(words) < 7 or len(words) > 55:
+        return False
+    if sentence_lower.endswith("?"):
+        return False
+    if sentence_lower.startswith(("dr mehmet", "outline", "recap", "in other words")):
+        return False
+
+    return True
+
+
+def clean_subject(subject):
+    subject = re.sub(r"[^A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+", " ", subject)
+    subject = " ".join(subject.split()).strip(" .,:;")
+    words = [word for word in subject.split() if word.lower() not in SUBJECT_STOP_WORDS]
+    subject = " ".join(words[:5])
+    return subject.strip()
+
+
+def sentence_subject(sentence, concepts):
+    sentence_lower = sentence.lower()
+
+    if "sistemi" in sentence_lower:
+        return "sistemi"
+    if "system" in sentence_lower:
+        return "the system"
+
+    for concept, aliases in GENAI_CONCEPTS.items():
+        if concept in concepts and any(alias in sentence_lower for alias in aliases):
+            return concept
+
+    if "krijoje" in sentence_lower or "krijon" in sentence_lower:
+        return "GenAI"
+    if "projekt" in sentence_lower:
+        return "projekti"
+    if "openai api" in sentence_lower:
+        return "OpenAI API"
+
+    if "modeli" in sentence_lower:
+        return "modeli"
+    if "model" in sentence_lower:
+        return "the model"
+
+    patterns = [
+        r"^([A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+(?:\s+[A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+){0,4})\s+(?:eshte|është|jane|janë|perdoret|përdoret|do te thote|do të thotë)\b",
+        r"^([A-Za-z0-9./_-]+(?:\s+[A-Za-z0-9./_-]+){0,4})\s+(?:is|are|means|uses|creates|retrieves|stores|checks)\b",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, sentence, re.IGNORECASE)
+        if match:
+            subject = clean_subject(match.group(1))
+            if subject:
+                return subject
+
+    words = sentence.split()
+    return clean_subject(" ".join(words[:4])) or ("materialit" if detect_language(sentence) == "sq" else "the material")
+
+
+def definition_quiz_item(sentence, language):
+    patterns = [
+        (
+            r"^(.{2,70}?)\s+(?:eshte|është|jane|janë|do te thote|do të thotë)\s+(.+)$",
+            "sq",
+        ),
+        (r"^(.{2,70}?)\s+(?:is|are|means)\s+(.+)$", "en"),
+    ]
+
+    for pattern, pattern_language in patterns:
+        match = re.search(pattern, sentence, re.IGNORECASE)
+        if not match:
+            continue
+
+        subject = clean_subject(match.group(1))
+        if not subject or len(subject.split()) > 6:
+            continue
+
+        if language == "sq":
+            return f"Cfare thote PDF-ja per {subject}?", compact_text(sentence)
+        return f"What does the PDF say about {subject}?", compact_text(sentence)
+
+    return None
+
+
+def adaptive_quiz_item(sentence, concepts, language):
+    definition_item = definition_quiz_item(sentence, language)
+    if definition_item:
+        return definition_item
+
+    answer = compact_text(sentence)
+
+    if language == "sq":
+        question_templates = [
+            "Cila fjali mbeshtetet nga PDF-ja?",
+            "Cili pohim permendet ne material?",
+            "Cfare duhet te mbash mend nga kjo pjese?",
+        ]
+    else:
+        question_templates = [
+            "Which statement is supported by the PDF?",
+            "Which point is mentioned in the uploaded material?",
+            "What should you remember from this part?",
+        ]
+
+    digest = hashlib.sha256(sentence.encode("utf-8")).hexdigest()
+    template = question_templates[int(digest[:2], 16) % len(question_templates)]
+    return template, answer
+
+
+def should_replace_template_question(question):
+    question_lower = question.lower()
+    repeated_patterns = [
+        "cfare roli ka",
+        "what role does",
+        "what main idea",
+        "cfare ideje kryesore",
+    ]
+    return any(pattern in question_lower for pattern in repeated_patterns)
 
 
 def clean_model_name(model_name):
@@ -434,19 +652,79 @@ def build_specific_quiz_items(sentence, concept, language):
 
 
 def generate_quiz(text):
+    quiz_items = generate_quiz_items(text)
+
+    if isinstance(quiz_items, str):
+        return quiz_items
+
+    language = detect_language(text)
+    label_question = "Pyetje" if language == "sq" else "Question"
+    label_answer = "Pergjigje" if language == "sq" else "Answer"
+    lines = []
+
+    for index, item in enumerate(quiz_items, start=1):
+        lines.append(
+            f"{index}. {label_question}: {item['question']}\n"
+            f"   {label_answer}: {item['answer']}"
+        )
+
+    return "\n".join(lines)
+
+
+def make_distractors(correct_answer, all_answers, language, limit=3):
+    fallback_answers_sq = [
+        "PDF-ja nuk jep shpjegim per kete teme.",
+        "Materiali thote se kjo teme nuk eshte e rendesishme.",
+        "Kjo pike nuk lidhet me permbajtjen e dokumentit.",
+    ]
+    fallback_answers_en = [
+        "The PDF does not explain this topic.",
+        "The material says this topic is not important.",
+        "This point is unrelated to the document content.",
+    ]
+    fallback_answers = fallback_answers_sq if language == "sq" else fallback_answers_en
+    correct_normalized = correct_answer.strip().lower()
+    distractors = []
+
+    for answer in all_answers + fallback_answers:
+        answer = compact_text(answer)
+        normalized = answer.lower()
+        if normalized == correct_normalized or normalized in {item.lower() for item in distractors}:
+            continue
+        if len(answer.split()) > 24:
+            continue
+        distractors.append(answer)
+        if len(distractors) == limit:
+            break
+
+    return distractors
+
+
+def stable_option_order(question, options):
+    digest = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    start = int(digest[:2], 16) % len(options)
+    return options[start:] + options[:start]
+
+
+def generate_quiz_items(text):
     language = detect_language(text)
 
     if not text or not text.strip():
         return message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
 
-    if not is_genai_material(text):
-        return message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
-
     concepts = extract_key_concepts(text)
     count = quiz_question_count(text)
-    candidate_sentences = split_sentences(text)
+    all_sentences = split_sentences(text)
+    candidate_sentences = [
+        sentence for sentence in all_sentences if is_good_quiz_sentence(sentence)
+    ]
 
-    quiz_items = []
+    if len(candidate_sentences) < 3:
+        candidate_sentences = [
+            sentence for sentence in all_sentences if is_fallback_quiz_sentence(sentence)
+        ]
+
+    raw_items = []
     used_answers = set()
     used_questions = set()
 
@@ -460,7 +738,10 @@ def generate_quiz(text):
                 matched_concept = concept
                 break
 
-        for question, answer in build_specific_quiz_items(sentence, matched_concept, language):
+        adaptive_item = adaptive_quiz_item(sentence, concepts, language)
+        sentence_items = [adaptive_item]
+
+        for question, answer in sentence_items:
             if not is_valid_quiz_answer(answer):
                 continue
 
@@ -473,23 +754,32 @@ def generate_quiz(text):
             used_answers.add(normalized_specific_answer)
             used_answers.add(normalized_answer)
 
-            label_question = "Pyetje" if language == "sq" else "Question"
-            label_answer = "Pergjigje" if language == "sq" else "Answer"
-            quiz_items.append(
-                f"{len(quiz_items) + 1}. {label_question}: {question}\n"
-                f"   {label_answer}: {answer}"
-            )
+            raw_items.append({"question": question, "answer": clean_answer(answer)})
 
-            if len(quiz_items) >= count:
+            if len(raw_items) >= count:
                 break
 
-        if len(quiz_items) >= count:
+        if len(raw_items) >= count:
             break
 
-    if not quiz_items:
+    if not raw_items:
         return message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
 
-    return "\n".join(quiz_items)
+    all_answers = [item["answer"] for item in raw_items]
+    quiz_items = []
+
+    for item in raw_items:
+        distractors = make_distractors(item["answer"], all_answers, language)
+        options = stable_option_order(item["question"], [item["answer"], *distractors])
+        quiz_items.append(
+            {
+                "question": item["question"],
+                "answer": item["answer"],
+                "options": options,
+            }
+        )
+
+    return quiz_items
 
 
 def explain_concept(concept, context):
