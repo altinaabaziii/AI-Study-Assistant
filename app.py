@@ -1,21 +1,25 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import html
+import os
 import time
 
 import streamlit as st
 from pypdf import PdfReader
 
 
-APP_NAME = "GenAI Study Assistant"
+APP_NAME = "AI Study Assistant"
 MLFLOW_EXPERIMENT_NAME = "GenAIStudyAssistant"
 MAX_PARAM_LENGTH = 250
+ENABLE_MLFLOW = os.getenv("ENABLE_MLFLOW", "").lower() in {"1", "true", "yes"}
+QUIZ_FORMAT_VERSION = 5
 
 
 st.set_page_config(
     page_title=APP_NAME,
     page_icon=":material/school:",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -24,39 +28,29 @@ def apply_custom_style():
         """
         <style>
         :root {
-            --app-bg: #000000;
-            --panel: #0a0a0a;
-            --panel-soft: #111111;
-            --panel-hover: #171717;
-            --border: #242424;
-            --border-strong: #3f3f46;
-            --text: #fafafa;
-            --muted: #a1a1aa;
-            --muted-2: #71717a;
-            --accent: #ffffff;
-            --blue: #60a5fa;
-            --amber: #f59e0b;
-            --success: #16a34a;
+            --bg: #000000;
+            --surface: #050505;
+            --surface-2: #0d0d0d;
+            --border: #262626;
+            --border-strong: #404040;
+            --text: #f5f5f5;
+            --muted: #a3a3a3;
+            --success: #22c55e;
             --danger: #ef4444;
         }
 
         .stApp {
-            background:
-                linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
-                var(--app-bg);
-            background-size: 42px 42px;
+            background: var(--bg);
             color: var(--text);
         }
 
         header[data-testid="stHeader"] {
-            background: rgba(0, 0, 0, 0.72);
-            backdrop-filter: blur(14px);
-            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(0, 0, 0, 0.86);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         [data-testid="stSidebar"] {
-            background: rgba(5, 5, 5, 0.98);
+            background: #050505;
             border-right: 1px solid var(--border);
         }
 
@@ -65,350 +59,171 @@ def apply_custom_style():
         }
 
         .block-container {
-            max-width: 1240px;
-            padding-top: 2.4rem;
-            padding-bottom: 4rem;
+            max-width: 960px;
+            padding-top: 1.2rem;
+            padding-bottom: 5rem;
+        }
+
+        h1, h2, h3 {
+            color: var(--text) !important;
+            letter-spacing: 0 !important;
         }
 
         h1 {
-            font-size: clamp(2.4rem, 5vw, 5rem) !important;
-            font-weight: 780 !important;
-            letter-spacing: 0 !important;
-            line-height: 0.96 !important;
+            font-size: 1.45rem !important;
+            font-weight: 720 !important;
             margin: 0 !important;
         }
 
-        h2, h3 {
-            letter-spacing: 0 !important;
-            color: var(--text) !important;
-        }
-
-        p, label, span {
+        p, label, span, div[data-testid="stMarkdownContainer"] {
             color: var(--muted);
         }
 
-        div[data-testid="stCaptionContainer"] {
-            max-width: 820px;
+        div[data-testid="stChatMessage"] {
+            background: transparent;
+            border: 0;
+        }
+
+        div[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+            color: var(--text);
+            line-height: 1.62;
+        }
+
+        div[data-testid="stChatInput"] {
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(0, 0, 0, 0.92);
         }
 
         div[data-testid="stTextInput"] input,
         div[data-testid="stTextArea"] textarea {
-            background: #050505;
+            background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--text);
-            min-height: 2.9rem;
-        }
-
-        div[data-testid="stTextInput"] input:focus,
-        div[data-testid="stTextArea"] textarea:focus {
-            border-color: #ffffff;
-            box-shadow: 0 0 0 1px #ffffff;
-        }
-
-        div.stButton > button {
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: #ffffff;
-            color: #000000;
-            font-weight: 650;
-            min-height: 2.75rem;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.28);
-            transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
-        }
-
-        div.stButton > button:hover {
-            border-color: #ffffff;
-            transform: translateY(-1px);
-            background: #f4f4f5;
-        }
-
-        div.stButton > button:disabled {
-            background: #111111;
-            color: #737373;
-            border-color: var(--border);
-            transform: none;
-        }
-
-        div[data-testid="stAlert"] {
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: rgba(10,10,10,0.86);
-        }
-
-        div[data-testid="stExpander"] {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--panel);
         }
 
         div[data-testid="stFileUploader"] section {
-            background: #050505;
+            background: var(--surface);
             border: 1px dashed var(--border-strong);
             border-radius: 8px;
         }
 
         div[data-testid="stFileUploader"] button {
-            border-radius: 8px;
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 8px !important;
+            font-weight: 650 !important;
         }
 
-        .sidebar-brand {
+        div[data-testid="stFileUploader"] button * {
+            color: #000000 !important;
+        }
+
+        div.stButton > button {
+            border-radius: 8px;
             border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 0.9rem;
-            background: linear-gradient(180deg, #111111 0%, #050505 100%);
-            margin-bottom: 1rem;
-        }
-
-        .sidebar-brand-title {
-            color: var(--text);
-            font-size: 0.92rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-        }
-
-        .sidebar-brand-subtitle {
-            color: var(--muted);
-            font-size: 0.78rem;
-            line-height: 1.45;
-        }
-
-        .app-hero {
-            display: grid;
-            grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
-            gap: 1rem;
-            align-items: stretch;
-            margin-bottom: 1.1rem;
-        }
-
-        .app-kicker {
-            color: var(--text);
-            font-size: 0.9rem;
-            font-weight: 700;
-            margin-bottom: 0.7rem;
-            display: flex;
-            align-items: center;
-            gap: 0.55rem;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 999px;
-            background: var(--success);
-            display: inline-block;
-            box-shadow: 0 0 18px rgba(22, 163, 74, 0.8);
-        }
-
-        .hero-copy {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.4rem;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.015)),
-                #050505;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .hero-copy:after {
-            content: "";
-            position: absolute;
-            inset: auto -20% -40% 40%;
-            height: 220px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
-            transform: rotate(-12deg);
-        }
-
-        .hero-copy p {
-            max-width: 720px;
-            color: var(--muted);
-            font-size: 1rem;
-            line-height: 1.7;
-            margin: 1rem 0 0;
-            position: relative;
-            z-index: 1;
-        }
-
-        .hero-title {
-            position: relative;
-            z-index: 1;
-        }
-
-        .hero-panel {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: #050505;
-            padding: 1rem;
-        }
-
-        .hero-panel-title {
-            color: var(--text);
-            font-weight: 700;
-            margin-bottom: 0.85rem;
-        }
-
-        .metric-list {
-            display: grid;
-            gap: 0.55rem;
-        }
-
-        .metric-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 1rem;
-            padding: 0.72rem 0.78rem;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: #0a0a0a;
-        }
-
-        .metric-label {
-            color: var(--muted);
-            font-size: 0.78rem;
-        }
-
-        .metric-value {
-            color: var(--text);
-            font-weight: 700;
-            font-size: 0.8rem;
-            text-align: right;
-        }
-
-        .command-strip {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 0.75rem;
-            margin: 1rem 0 1.4rem;
-        }
-
-        .command-card {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 0.9rem;
-            background: rgba(8,8,8,0.92);
-        }
-
-        .command-label {
-            color: var(--muted);
-            font-size: 0.75rem;
+            background: #ffffff !important;
+            color: #000000 !important;
             font-weight: 650;
-            text-transform: uppercase;
-            letter-spacing: 0;
-            margin-bottom: 0.35rem;
+            min-height: 2.65rem;
         }
 
-        .command-value {
-            color: var(--text);
-            font-size: 0.92rem;
-            line-height: 1.45;
+        div.stButton > button * {
+            color: #000000 !important;
         }
 
-        .section-shell {
-            border: 1px solid var(--border);
+        div.stButton > button:hover {
+            border-color: #ffffff;
+            background: #f4f4f5 !important;
+            color: #000000 !important;
+        }
+
+        div.stButton > button:disabled {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border-color: var(--border) !important;
+            opacity: 0.58;
+        }
+
+        div[data-testid="stAlert"],
+        div[data-testid="stExpander"],
+        div[data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 8px;
-            background: rgba(5,5,5,0.94);
-            padding: 1.05rem;
-            margin-bottom: 1rem;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            border-color: var(--border);
+            background: var(--surface);
         }
 
-        .section-header {
+        .topbar {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
             gap: 1rem;
+            padding-bottom: 1rem;
             border-bottom: 1px solid var(--border);
-            padding-bottom: 0.9rem;
             margin-bottom: 1rem;
         }
 
-        .section-title {
-            color: var(--text);
-            font-size: 1rem;
-            font-weight: 740;
-            margin-bottom: 0.2rem;
-        }
-
-        .section-subtitle {
+        .subtitle {
             color: var(--muted);
-            font-size: 0.83rem;
+            font-size: 0.92rem;
             line-height: 1.5;
+            margin-top: 0.35rem;
         }
 
-        .badge {
+        .status-pill {
             border: 1px solid var(--border);
             border-radius: 999px;
-            color: var(--muted);
-            padding: 0.22rem 0.55rem;
-            font-size: 0.72rem;
-            white-space: nowrap;
-            background: #0a0a0a;
-        }
-
-        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-            gap: 0.4rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        div[data-testid="stTabs"] [data-baseweb="tab"] {
-            border-radius: 8px 8px 0 0;
-            color: var(--muted);
-            font-weight: 650;
-        }
-
-        div[data-testid="stTabs"] [aria-selected="true"] {
-            background: #111111;
-            color: #ffffff;
-        }
-
-        .quiz-item {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: #050505;
-            padding: 1rem;
-            margin: 0.85rem 0;
-        }
-
-        .quiz-question {
+            padding: 0.32rem 0.65rem;
             color: var(--text);
-            font-weight: 650;
-            margin-bottom: 0.45rem;
+            font-size: 0.78rem;
+            white-space: nowrap;
+            background: var(--surface-2);
         }
 
-        .feedback-ok {
-            color: var(--success);
-            font-weight: 650;
-            margin-top: 0.65rem;
+        .quick-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.65rem;
+            margin: 0.6rem 0 1rem;
         }
 
-        .feedback-bad {
-            color: var(--danger);
-            font-weight: 650;
-            margin-top: 0.65rem;
-        }
-
-        div[role="radiogroup"] label {
-            background: #050505;
+        .quick-card {
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 0.48rem 0.65rem;
-            margin-bottom: 0.35rem;
+            background: var(--surface);
+            padding: 0.75rem;
+            min-height: 5rem;
         }
 
-        div[role="radiogroup"] label:hover {
-            border-color: var(--border-strong);
-            background: #0b0b0b;
+        .quick-title {
+            color: var(--text);
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
         }
 
-        @media (max-width: 900px) {
-            .app-hero,
-            .command-strip {
-                grid-template-columns: 1fr;
+        .quick-copy {
+            color: var(--muted);
+            font-size: 0.8rem;
+            line-height: 1.45;
+        }
+
+        .result-meta {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 0.4rem;
+        }
+
+        @media (max-width: 760px) {
+            .block-container {
+                padding-top: 0.8rem;
             }
 
-            .block-container {
-                padding-top: 1.2rem;
+            .topbar,
+            .quick-grid {
+                grid-template-columns: 1fr;
+                display: grid;
             }
         }
         </style>
@@ -417,16 +232,73 @@ def apply_custom_style():
     )
 
 
+@st.cache_resource(show_spinner=False)
 def load_rag_functions():
     from rag_engine import ask_question, build_index, retrieve_sources
 
     return build_index, ask_question, retrieve_sources
 
 
+@st.cache_resource(show_spinner=False)
 def load_study_functions():
-    from study_tools import explain_concept, generate_quiz_items, summarize_text
+    from study_tools import (
+        explain_concept,
+        generate_quiz_items,
+        is_genai_material,
+        summarize_text,
+    )
 
-    return summarize_text, generate_quiz_items, explain_concept
+    return (
+        summarize_text,
+        generate_quiz_items,
+        explain_concept,
+        is_genai_material,
+    )
+
+
+def clean_quiz_question(question, language=None):
+    question = " ".join(str(question).split())
+    replacements = {
+        "Cfare thote PDF-ja per": "Cfare eshte",
+        "Cfare thote PDF per": "Cfare eshte",
+        "Cila fjali mbeshtetet nga PDF-ja?": "Cila fjali eshte e sakte?",
+        "Cila fjali mbeshtetet nga PDF?": "Cila fjali eshte e sakte?",
+        "What does the PDF say about": "What is",
+        "Which statement is supported by the PDF?": "Which statement is correct?",
+        "Which point is mentioned in the uploaded material?": "Which point is mentioned in the material?",
+    }
+    for old, new in replacements.items():
+        question = question.replace(old, new)
+    return question.replace("PDF-ja", "materiali").replace("PDF", "material").strip()
+
+
+def is_material_overview_question(question):
+    normalized = question.lower().strip()
+    normalized = normalized.replace("ç", "c").replace("ë", "e")
+    overview_phrases = (
+        "cfare permban materiali",
+        "qfare permban materiali",
+        "cka permban materiali",
+        "cfa permban materiali",
+        "per cka eshte materiali",
+        "per cfare eshte materiali",
+        "me trego per materialin",
+        "me trego cfare permban",
+        "what does the material contain",
+        "what is this material about",
+        "summarize the material",
+    )
+    return any(phrase in normalized for phrase in overview_phrases)
+
+
+def answer_material_overview():
+    pdf_text = st.session_state.get("pdf_text", "")
+    if not pdf_text:
+        return (
+            "Nuk ka PDF te ngarkuar per kete pamje. Ngarko nje PDF GenAI dhe kliko "
+            "`Proceso materialin`, pastaj mund te pyesesh cfare permban materiali."
+        )
+    return summarize_text(pdf_text)
 
 
 def save_uploaded_pdf(uploaded_file):
@@ -457,12 +329,13 @@ def reset_outputs():
         "explanation",
         "sources",
         "explanation_sources",
+        "last_runtime",
+        "messages",
+        "summary_messages",
     ):
         st.session_state.pop(key, None)
 
-    for key in list(st.session_state):
-        if key.startswith("quiz_choice_"):
-            st.session_state.pop(key, None)
+    reset_quiz_choices()
 
 
 def reset_quiz_choices():
@@ -479,6 +352,9 @@ def short_text(text, max_length=MAX_PARAM_LENGTH):
 
 
 def log_mlflow_event(task_type, user_input, generated_answer, response_time):
+    if not ENABLE_MLFLOW:
+        return
+
     try:
         import mlflow
 
@@ -500,78 +376,317 @@ def show_sources(sources):
     if not sources:
         return
 
-    with st.expander("Retrieved source text", expanded=False):
+    with st.expander("Burimet", expanded=False):
         for index, source in enumerate(sources, start=1):
-            st.markdown(f"**Source {index}: {source['source']}**")
+            st.markdown(f"**{index}. {source['source']}**")
             st.write(source["text"])
 
 
-def render_hero(documents_ready):
-    material = st.session_state.get("pdf_name") or "Built-in GenAI library"
-    index_status = "Ready" if documents_ready else "Not processed"
-    source_status = "Uploaded PDF" if st.session_state.get("pdf_name") else "Knowledge base"
-    access_status = "Local and fast"
+def ensure_messages():
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Pershendetje. Upload nje PDF ose perdor bazen GenAI, "
+                    "pastaj bej pyetje. Pergjigjet kthehen nga materiali i procesuar."
+                ),
+            }
+        ]
+
+
+def ensure_summary_messages():
+    if "summary_messages" not in st.session_state:
+        st.session_state["summary_messages"] = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Kjo pamje eshte vetem per permbledhjen dhe pyetje rreth PDF-se "
+                    "se ngarkuar."
+                ),
+            }
+        ]
+
+
+def process_material(uploaded_pdf):
+    reset_outputs()
+
+    pdf_files = []
+    uploaded_text = ""
+
+    if uploaded_pdf is not None:
+        pdf_path = save_uploaded_pdf(uploaded_pdf)
+        uploaded_text = read_pdf_text(pdf_path)
+        if not uploaded_text:
+            raise ValueError("Nuk u gjet tekst i lexueshem ne kete PDF.")
+        if not is_genai_material(uploaded_text):
+            raise ValueError(
+                "Ky dokument nuk duket se ka lidhje me Generative AI. "
+                "Ky eshte vetem AI Study Assistant per temat GenAI."
+            )
+        pdf_files.append(pdf_path)
+        st.session_state["pdf_name"] = uploaded_pdf.name
+        st.session_state["pdf_text"] = uploaded_text
+    else:
+        st.session_state["pdf_name"] = ""
+        st.session_state["pdf_text"] = ""
+
+    start_time = time.perf_counter()
+    build_index(pdf_files)
+    st.session_state["last_runtime"] = time.perf_counter() - start_time
+    st.session_state["documents_ready"] = True
+    st.session_state["view"] = "chat"
+    ensure_messages()
+
+
+def ensure_default_material_ready():
+    if st.session_state.get("documents_ready"):
+        return
+
+    start_time = time.perf_counter()
+    build_index()
+    st.session_state["last_runtime"] = time.perf_counter() - start_time
+    st.session_state["documents_ready"] = True
+    st.session_state["pdf_name"] = ""
+    st.session_state["pdf_text"] = ""
+    st.session_state.setdefault("view", "chat")
+    ensure_messages()
+
+
+def start_new_chat():
+    for key in (
+        "messages",
+        "summary_messages",
+        "answer",
+        "summary",
+        "quiz",
+        "sources",
+        "explanation",
+        "explanation_sources",
+    ):
+        st.session_state.pop(key, None)
+    reset_quiz_choices()
+    st.session_state["view"] = "chat"
+    ensure_messages()
+
+
+def render_topbar(documents_ready):
+    material = st.session_state.get("pdf_name") or "Baza GenAI"
+    status = "Gati" if documents_ready else "Duke u pergatitur"
 
     st.markdown(
         f"""
-        <div class="app-hero">
-            <section class="hero-copy">
-                <div class="app-kicker">
-                    <span class="status-dot"></span>
-                    Local RAG study workspace
+        <div class="topbar">
+            <div>
+                <h1>AI Study Assistant</h1>
+                <div class="subtitle">
+                    Pyet shpejt, merr pergjigje nga materiali, krijo permbledhje dhe quiz.
                 </div>
-                <div class="hero-title">
-                    <h1>GenAI Study Assistant</h1>
-                </div>
-                <p>
-                    A focused study console for asking source-grounded questions,
-                    generating concise notes, and practicing with instant quiz feedback.
-                </p>
-            </section>
-            <aside class="hero-panel">
-                <div class="hero-panel-title">Workspace status</div>
-                <div class="metric-list">
-                    <div class="metric-row">
-                        <span class="metric-label">Index</span>
-                        <span class="metric-value">{html.escape(index_status)}</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Source</span>
-                        <span class="metric-value">{html.escape(source_status)}</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Material</span>
-                        <span class="metric-value">{html.escape(material)}</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Mode</span>
-                        <span class="metric-value">{html.escape(access_status)}</span>
-                    </div>
-                </div>
-            </aside>
-        </div>
-        <div class="command-strip">
-            <div class="command-card">
-                <div class="command-label">Ask</div>
-                <div class="command-value">Search the processed material and get a grounded answer.</div>
             </div>
-            <div class="command-card">
-                <div class="command-label">Study</div>
-                <div class="command-value">Summarize notes or explain a specific GenAI concept.</div>
-            </div>
-            <div class="command-card">
-                <div class="command-label">Practice</div>
-                <div class="command-value">Open an interactive quiz window with instant corrections.</div>
-            </div>
+            <div class="status-pill">{html.escape(status)} - {html.escape(material)}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
+def render_quick_actions(documents_ready):
+    st.markdown(
+        """
+        <div class="quick-grid">
+            <div class="quick-card">
+                <div class="quick-title">Pyetje</div>
+                <div class="quick-copy">Shkruaj poshte dhe merr pergjigje te bazuar ne burime.</div>
+            </div>
+            <div class="quick-card">
+                <div class="quick-title">Permbledhje PDF</div>
+                <div class="quick-copy">Pas upload-it, nxirr pikat kryesore pa pritur gjate.</div>
+            </div>
+            <div class="quick-card">
+                <div class="quick-title">Quiz</div>
+                <div class="quick-copy">Gjenero pyetje me alternativa dhe kontrollo pergjigjet menjehere.</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_chat, col_summary, col_quiz = st.columns(3)
+    with col_chat:
+        chat_clicked = st.button(
+            "Chat me materialin",
+            disabled=not documents_ready,
+            use_container_width=True,
+        )
+    with col_summary:
+        summarize_clicked = st.button(
+            "Permbledh PDF",
+            disabled=not documents_ready or not st.session_state.get("pdf_text"),
+            use_container_width=True,
+        )
+    with col_quiz:
+        quiz_clicked = st.button(
+            "Gjenero Quiz",
+            disabled=not documents_ready or not st.session_state.get("pdf_text"),
+            use_container_width=True,
+        )
+
+    if chat_clicked:
+        st.session_state["view"] = "chat"
+        st.rerun()
+
+    if summarize_clicked:
+        should_rerun = False
+        with st.spinner("Duke bere permbledhjen..."):
+            try:
+                start_time = time.perf_counter()
+                summary = summarize_text(st.session_state["pdf_text"])
+                response_time = time.perf_counter() - start_time
+                st.session_state["summary"] = summary
+                st.session_state["view"] = "summary"
+                ensure_summary_messages()
+                log_mlflow_event("summary", st.session_state["pdf_name"], summary, response_time)
+                should_rerun = True
+            except Exception as exc:
+                st.error(f"Nuk u krijua permbledhja: {exc}")
+        if should_rerun:
+            st.rerun()
+
+    if quiz_clicked:
+        should_rerun = False
+        with st.spinner("Duke gjeneruar quiz-in..."):
+            try:
+                reset_quiz_choices()
+                start_time = time.perf_counter()
+                quiz = generate_quiz_items(st.session_state["pdf_text"])
+                response_time = time.perf_counter() - start_time
+                st.session_state["quiz"] = quiz
+                st.session_state["quiz_format_version"] = QUIZ_FORMAT_VERSION
+                st.session_state["view"] = "quiz"
+                log_mlflow_event("quiz", st.session_state["pdf_name"], quiz, response_time)
+                should_rerun = True
+            except Exception as exc:
+                st.error(f"Nuk u krijua quiz-i: {exc}")
+        if should_rerun:
+            st.rerun()
+
+
+def render_chat(documents_ready):
+    ensure_messages()
+
+    for message in st.session_state["messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    prompt = st.chat_input(
+        "Bej nje pyetje per materialin...",
+        disabled=not documents_ready,
+    )
+
+    if not prompt:
+        return
+
+    st.session_state["messages"].append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Duke kerkuar ne material..."):
+            try:
+                start_time = time.perf_counter()
+                result = ask_question(prompt.strip())
+                response_time = time.perf_counter() - start_time
+                answer = result["answer"]
+                st.session_state["answer"] = answer
+                st.session_state["sources"] = result["sources"]
+                st.session_state["last_runtime"] = response_time
+                log_mlflow_event("question", prompt.strip(), answer, response_time)
+            except Exception as exc:
+                answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
+                st.session_state["sources"] = []
+
+        st.markdown(answer)
+        if st.session_state.get("last_runtime") is not None:
+            st.markdown(
+                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.session_state["messages"].append({"role": "assistant", "content": answer})
+
+
+def render_pdf_question_chat():
+    ensure_summary_messages()
+
+    st.subheader("Pyetje rreth PDF-se")
+    for message in st.session_state["summary_messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    prompt = st.chat_input(
+        "Pyet vetem rreth PDF-se se ngarkuar...",
+        disabled=not st.session_state.get("pdf_text"),
+        key="summary_chat_input",
+    )
+
+    if not prompt:
+        return
+
+    st.session_state["summary_messages"].append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Duke kerkuar ne PDF dhe bazen GenAI..."):
+            try:
+                start_time = time.perf_counter()
+                if is_material_overview_question(prompt):
+                    answer = answer_material_overview()
+                    sources = []
+                else:
+                    result = ask_question(prompt.strip())
+                    answer = result["answer"]
+                    sources = result["sources"]
+                response_time = time.perf_counter() - start_time
+                st.session_state["sources"] = sources
+                st.session_state["last_runtime"] = response_time
+                log_mlflow_event("pdf_question", prompt.strip(), answer, response_time)
+            except Exception as exc:
+                answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
+                st.session_state["sources"] = []
+
+        st.markdown(answer)
+        if st.session_state.get("last_runtime") is not None:
+            st.markdown(
+                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.session_state["summary_messages"].append({"role": "assistant", "content": answer})
+
+
+def render_summary():
+    if not st.session_state.get("summary"):
+        return
+
+    st.subheader("Permbledhje")
+    st.markdown(st.session_state["summary"])
+    render_pdf_question_chat()
+
+
 def render_quiz(quiz_items):
+    if not quiz_items:
+        return
+
+    st.subheader("Quiz")
     if isinstance(quiz_items, str):
         st.warning(quiz_items)
+        return
+    if st.session_state.get("quiz_format_version") != QUIZ_FORMAT_VERSION:
+        st.session_state.pop("quiz", None)
+        reset_quiz_choices()
+        st.session_state["view"] = "chat"
+        st.warning("Quiz-i i vjeter u pastrua. Kliko `Gjenero Quiz` perseri per versionin e ri.")
         return
 
     correct_count = 0
@@ -579,9 +694,12 @@ def render_quiz(quiz_items):
 
     for index, item in enumerate(quiz_items):
         with st.container(border=True):
-            st.markdown(f"**{index + 1}. {item['question']}**")
+            if item.get("concept"):
+                st.caption(f"Koncepti: {item['concept']}")
+            question = clean_quiz_question(item["question"])
+            st.markdown(f"**{index + 1}. {question}**")
             choice = st.radio(
-                "Choose an answer",
+                "Zgjidh pergjigjen",
                 item["options"],
                 index=None,
                 key=f"quiz_choice_{index}",
@@ -592,266 +710,75 @@ def render_quiz(quiz_items):
                 answered_count += 1
                 if choice == item["answer"]:
                     correct_count += 1
-                    st.success("Sakte. Kjo eshte pergjigjja e duhur.")
+                    st.success("Sakte.")
                 else:
                     st.error(f"Gabim. Pergjigjja e sakte: {item['answer']}")
 
     if answered_count:
-        st.caption(f"Score: {correct_count}/{answered_count} answered correctly")
-
-
-@st.dialog("Quiz Practice", width="large")
-def show_quiz_dialog():
-    st.caption("Choose one answer for each question. Feedback appears immediately.")
-    render_quiz(st.session_state.get("quiz"))
-
-    if st.button("Close Quiz", use_container_width=True):
-        st.session_state["show_quiz_dialog"] = False
-        st.rerun()
+        st.caption(f"Rezultati: {correct_count}/{answered_count}")
 
 
 build_index, ask_question, retrieve_sources = load_rag_functions()
-summarize_text, generate_quiz_items, explain_concept = load_study_functions()
+(
+    summarize_text,
+    generate_quiz_items,
+    explain_concept,
+    is_genai_material,
+) = load_study_functions()
 
 apply_custom_style()
+try:
+    ensure_default_material_ready()
+except Exception as exc:
+    st.session_state["documents_ready"] = False
+    st.error(f"Nuk u pergatit baza GenAI: {exc}")
+
 documents_ready = st.session_state.get("documents_ready", False)
 
 with st.sidebar:
-    st.markdown(
-        """
-        <div class="sidebar-brand">
-            <div class="sidebar-brand-title">GenAI Workspace</div>
-            <div class="sidebar-brand-subtitle">
-                Upload notes, build the study index, then ask, summarize, or practice.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.header("Study Materials")
-    uploaded_pdf = st.file_uploader("Upload PDF notes or slides", type=["pdf"])
-    process_documents = st.button(
-        "Process Documents",
-        type="primary",
-        use_container_width=True,
-    )
+    st.header("Materiali")
+    uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
+    process_documents = st.button("Proceso materialin", type="primary", use_container_width=True)
+    new_chat_clicked = st.button("Chat i ri", use_container_width=True)
 
-    st.markdown("Built-in knowledge base: `data/genai_knowledge_base/`")
+    if new_chat_clicked:
+        start_new_chat()
+        st.rerun()
 
-    if st.session_state.get("documents_ready"):
-        st.success("Documents processed")
-        if st.session_state.get("pdf_name"):
-            st.write(st.session_state["pdf_name"])
-        else:
-            st.write("Built-in GenAI knowledge base only")
-    else:
-        st.info("Process documents to build the GenAI study index.")
-
-if process_documents:
-    reset_outputs()
-
-    with st.spinner("Reading materials and building the GenAI study index..."):
-        try:
-            pdf_files = []
-            uploaded_text = ""
-
-            if uploaded_pdf is not None:
-                pdf_path = save_uploaded_pdf(uploaded_pdf)
-                uploaded_text = read_pdf_text(pdf_path)
-                if not uploaded_text:
-                    raise ValueError("No readable text was found in this PDF.")
-                pdf_files.append(pdf_path)
-                st.session_state["pdf_name"] = uploaded_pdf.name
-                st.session_state["pdf_text"] = uploaded_text
-            else:
-                st.session_state["pdf_name"] = ""
-                st.session_state["pdf_text"] = ""
-
-            build_index(pdf_files)
-
-        except Exception as exc:
-            st.session_state["documents_ready"] = False
-            documents_ready = False
-            st.error(f"Could not process documents: {exc}")
-        else:
-            st.session_state["documents_ready"] = True
-            documents_ready = True
-            st.success("GenAI study index created successfully.")
-
-render_hero(documents_ready)
-
-left_column, right_column = st.columns([1, 1], gap="large")
-
-with left_column:
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Ask Questions</div>
-                <div class="section-subtitle">
-                    Query your uploaded notes and the built-in GenAI knowledge base.
-                </div>
-            </div>
-            <span class="badge">RAG search</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    question = st.text_input(
-        "Question",
-        placeholder="Example: How does RAG use embeddings and vector search?",
-        disabled=not documents_ready,
-    )
-
-    ask_clicked = st.button(
-        "Ask Question",
-        disabled=not documents_ready or not question.strip(),
-        use_container_width=True,
-    )
-
-    if ask_clicked:
-        with st.spinner("Retrieving GenAI material and preparing an answer..."):
+    if process_documents:
+        with st.spinner("Duke lexuar PDF dhe duke ndertuar indeksin..."):
             try:
-                start_time = time.perf_counter()
-                result = ask_question(question.strip())
-                response_time = time.perf_counter() - start_time
-
-                st.session_state["answer"] = result["answer"]
-                st.session_state["sources"] = result["sources"]
-                log_mlflow_event("question", question.strip(), result["answer"], response_time)
+                process_material(uploaded_pdf)
+                documents_ready = True
+                st.success("Materiali eshte gati.")
             except Exception as exc:
-                st.error(f"Could not answer question: {exc}")
+                st.session_state["documents_ready"] = False
+                documents_ready = False
+                st.error(f"Nuk u procesua materiali: {exc}")
 
-    if st.session_state.get("answer"):
-        st.markdown("#### Answer")
-        st.info(st.session_state["answer"])
-        show_sources(st.session_state.get("sources", []))
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.divider()
+    if documents_ready:
+        st.success("Gati per pyetje")
+        st.caption(st.session_state.get("pdf_name") or "Baza GenAI")
+    else:
+        st.info("Baza GenAI po pergatitet. PDF eshte opsional.")
 
-with right_column:
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Study Tools</div>
-                <div class="section-subtitle">
-                    Turn the same material into notes, practice questions, or concept explanations.
-                </div>
-            </div>
-            <span class="badge">Workspace</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if st.session_state.get("last_runtime") is not None:
+        st.caption(f"Operacioni i fundit: {st.session_state['last_runtime']:.2f}s")
 
-    summary_tab, quiz_tab, explain_tab = st.tabs(["Summary", "Quiz", "Explain"])
+    if st.session_state.get("sources"):
+        show_sources(st.session_state["sources"])
 
-    with summary_tab:
-        summarize_clicked = st.button(
-            "Summarize Material",
-            disabled=not documents_ready or not st.session_state.get("pdf_text"),
-            use_container_width=True,
-        )
+render_topbar(documents_ready)
+render_quick_actions(documents_ready)
 
-        if summarize_clicked:
-            with st.spinner("Creating a GenAI summary..."):
-                try:
-                    start_time = time.perf_counter()
-                    summary = summarize_text(st.session_state["pdf_text"])
-                    response_time = time.perf_counter() - start_time
-
-                    st.session_state["summary"] = summary
-                    log_mlflow_event(
-                        "summary",
-                        st.session_state["pdf_name"],
-                        summary,
-                        response_time,
-                    )
-                except Exception as exc:
-                    st.error(f"Could not create summary: {exc}")
-
-        if st.session_state.get("summary"):
-            st.markdown("#### Summary")
-            st.success(st.session_state["summary"])
-        else:
-            st.caption("Upload and process a PDF to create a concise study summary.")
-
-    with quiz_tab:
-        quiz_clicked = st.button(
-            "Generate Quiz",
-            disabled=not documents_ready or not st.session_state.get("pdf_text"),
-            use_container_width=True,
-        )
-
-        if quiz_clicked:
-            with st.spinner("Creating GenAI quiz questions..."):
-                try:
-                    reset_quiz_choices()
-                    start_time = time.perf_counter()
-                    quiz = generate_quiz_items(st.session_state["pdf_text"])
-                    response_time = time.perf_counter() - start_time
-
-                    st.session_state["quiz"] = quiz
-                    st.session_state["show_quiz_dialog"] = True
-                    log_mlflow_event("quiz", st.session_state["pdf_name"], quiz, response_time)
-                except Exception as exc:
-                    st.error(f"Could not create quiz: {exc}")
-
-        if st.session_state.get("quiz"):
-            st.button(
-                "Open Quiz Window",
-                key="open_quiz_window",
-                on_click=lambda: st.session_state.update(show_quiz_dialog=True),
-                use_container_width=True,
-            )
-            st.caption("The quiz opens in a separate practice window.")
-        else:
-            st.caption("Generate a multiple-choice quiz from your uploaded notes.")
-
-    with explain_tab:
-        concept = st.text_input(
-            "Concept",
-            placeholder="Example: context engineering",
-            disabled=not documents_ready,
-        )
-
-        explain_clicked = st.button(
-            "Explain Concept",
-            disabled=not documents_ready or not concept.strip(),
-            use_container_width=True,
-        )
-
-        if explain_clicked:
-            with st.spinner("Explaining the GenAI concept..."):
-                try:
-                    start_time = time.perf_counter()
-                    sources = retrieve_sources(concept.strip())
-                    context = "\n\n".join(source["text"] for source in sources)
-                    explanation = explain_concept(concept.strip(), context)
-                    response_time = time.perf_counter() - start_time
-
-                    st.session_state["explanation"] = explanation
-                    st.session_state["explanation_sources"] = sources
-                    log_mlflow_event("explanation", concept.strip(), explanation, response_time)
-                except Exception as exc:
-                    st.error(f"Could not explain concept: {exc}")
-
-        if st.session_state.get("explanation"):
-            st.markdown("#### Explanation")
-            st.info(st.session_state["explanation"])
-            show_sources(st.session_state.get("explanation_sources", []))
-        else:
-            st.caption("Enter a GenAI concept and get a short explanation from the material.")
-    st.markdown("</div>", unsafe_allow_html=True)
+current_view = st.session_state.get("view", "chat")
+if current_view == "summary":
+    render_summary()
+elif current_view == "quiz":
+    render_quiz(st.session_state.get("quiz"))
+else:
+    render_chat(documents_ready)
 
 if not documents_ready:
-    st.divider()
-    st.write(
-        "This assistant is not a general chatbot. It answers only Generative AI "
-        "questions using uploaded materials and the built-in GenAI knowledge base."
-    )
-
-if st.session_state.get("show_quiz_dialog") and st.session_state.get("quiz"):
-    show_quiz_dialog()
+    st.info("Baza GenAI nuk u pergatit ende. Mund te provosh perseri ose te ngarkosh PDF GenAI.")
