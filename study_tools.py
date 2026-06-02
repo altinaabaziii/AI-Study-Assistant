@@ -9,7 +9,7 @@ NOT_FOUND_MESSAGE_SQ = "Nuk gjeta informacion te mjaftueshem ne materialet e stu
 SUMMARY_SENTENCE_LIMIT = 10
 
 GENAI_CONCEPTS = {
-    "Generative AI": ["generative ai", "genai", "gjenerative ai"],
+    "Generative AI": ["generative ai", "genai", "gen ai", "gjenerative ai"],
     "LLMs": ["llm", "large language model", "model gjuhesor", "modele gjuhesore"],
     "Prompt Engineering": ["prompt engineering", "prompt", "prompti"],
     "Context Engineering": ["context engineering", "context", "kontekst"],
@@ -262,13 +262,18 @@ def is_learning_sentence(sentence):
     return True
 
 
+def normalize_topic_text(text):
+    text_lower = str(text).lower()
+    return re.sub(r"\bgen[\s_-]+ai\b", "genai", text_lower)
+
+
 def is_genai_material(text):
-    text_lower = text.lower()
+    text_lower = normalize_topic_text(text)
     return any(alias in text_lower for aliases in GENAI_CONCEPTS.values() for alias in aliases)
 
 
 def extract_key_concepts(text):
-    text_lower = text.lower()
+    text_lower = normalize_topic_text(text)
     concepts = []
 
     for concept, aliases in GENAI_CONCEPTS.items():
@@ -279,7 +284,7 @@ def extract_key_concepts(text):
 
 
 def sentence_score(sentence, concepts):
-    sentence_lower = sentence.lower()
+    sentence_lower = normalize_topic_text(sentence)
     score = 0
 
     for concept, aliases in GENAI_CONCEPTS.items():
@@ -388,8 +393,13 @@ def summarize_text(text):
     return "\n".join([concept_line, "", essay_title, essay, "", points_title, *bullet_lines])
 
 
+def clean_display_text(text):
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2000-\u200f\u2028-\u202f\u205f\u3000\ufeff]", " ", str(text))
+    return " ".join(text.split())
+
+
 def clean_answer(text):
-    return text.strip().rstrip(".") + "."
+    return clean_display_text(text).rstrip(".") + "."
 
 
 def clean_quiz_question(question, language=None):
@@ -974,12 +984,14 @@ def generate_quiz_items(text):
         if len(distractors) < 3:
             continue
         options = stable_option_order(item["question"], [item["answer"], *distractors])
+        options = [clean_display_text(option) for option in options]
+        item_answer = clean_display_text(item["answer"])
         if sum(normalize_for_match(option) == normalize_for_match(item["answer"]) for option in options) != 1:
             continue
         quiz_items.append(
             {
                 "question": item["question"],
-                "answer": item["answer"],
+                "answer": item_answer,
                 "options": options,
                 "concept": item.get("concept", ""),
             }

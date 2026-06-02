@@ -13,6 +13,7 @@ NOT_FOUND_MESSAGE_SQ = "Nuk gjeta informacion te mjaftueshem ne materialet e stu
 GENAI_TOPICS = [
     "generative ai",
     "genai",
+    "gen ai",
     "large language model",
     "llm",
     "prompt engineering",
@@ -45,6 +46,11 @@ GENAI_TOPICS = [
     "siguri",
 ]
 
+
+def normalize_topic_text(text):
+    text_lower = str(text).lower()
+    return re.sub(r"\bgen[\s_-]+ai\b", "genai", text_lower)
+
 ALBANIAN_WORDS = {
     "cfare",
     "cfa",
@@ -66,6 +72,9 @@ ALBANIAN_WORDS = {
     "trego",
     "thjeshte",
     "shqip",
+    "shkurt",
+    "shkurtimisht",
+    "pak",
 }
 
 DEFINITION_WORDS = {
@@ -78,6 +87,37 @@ DEFINITION_WORDS = {
     "qka",
     "shpjego",
 }
+
+EXPANSION_PHRASES = (
+    "more",
+    "more detail",
+    "in detail",
+    "longer",
+    "explain more",
+    "tell me more",
+    "me shume",
+    "me shumm",
+    "ma shume",
+    "me gjate",
+    "me detaje",
+    "hollesisht",
+    "trego me shume",
+    "shpjego me shume",
+)
+
+SHORTEN_PHRASES = (
+    "short",
+    "brief",
+    "briefly",
+    "shortly",
+    "less",
+    "shorter",
+    "me pak",
+    "ma pak",
+    "shkurt",
+    "shkurtimisht",
+    "shume shkurt",
+)
 
 CONCEPT_DEFINITIONS = {
     "genai": {
@@ -291,8 +331,52 @@ CONCEPT_DEFINITIONS = {
     },
 }
 
+SHORT_CONCEPT_DEFINITIONS = {
+    "genai": {
+        "en": "GenAI means Generative AI: AI that creates new content such as text, images, summaries, code, or answers.",
+        "sq": "GenAI do te thote Generative AI: inteligjence artificiale qe krijon permbajtje te re, si tekst, imazhe, permbledhje, kod ose pergjigje.",
+    },
+    "llm": {
+        "en": "An LLM is a large language model that understands and generates text.",
+        "sq": "LLM eshte model i madh gjuhesor qe kupton dhe gjeneron tekst.",
+    },
+}
+
+EXPANDED_CONCEPT_DEFINITIONS = {
+    "genai": {
+        "en": (
+            "Generative AI (GenAI) is a type of artificial intelligence that creates new content instead of only classifying or storing data. "
+            "It can generate text, summaries, explanations, code, images, audio, and other outputs from a prompt. "
+            "The model learns patterns from training data, then uses those patterns to produce a new response for the user's task. "
+            "In a study assistant, GenAI can answer questions, explain concepts, summarize documents, and create quiz questions. "
+            "The quality of the answer depends on the prompt, the context, the model, and whether the system uses reliable source material."
+        ),
+        "sq": (
+            "Generative AI (GenAI) eshte lloj i inteligjences artificiale qe krijon permbajtje te re, jo vetem klasifikim ose ruajtje te te dhenave. "
+            "Mund te gjeneroje tekst, permbledhje, shpjegime, kod, imazhe, audio dhe pergjigje nga nje prompt. "
+            "Modeli meson modele nga te dhenat ku eshte trajnuar dhe pastaj i perdor ato per te krijuar nje pergjigje te re per detyren e perdoruesit. "
+            "Ne nje study assistant, GenAI mund te pergjigjet ne pyetje, te shpjegoje koncepte, te permbledhe dokumente dhe te krijoje quiz. "
+            "Cilesia e pergjigjes varet nga prompti, konteksti, modeli dhe nga burimet qe sistemi perdor."
+        ),
+    },
+    "llm": {
+        "en": (
+            "An LLM is a large language model trained on large amounts of text to understand and generate language. "
+            "It predicts useful text based on the prompt and context it receives. "
+            "LLMs are used in chat assistants, summarization, translation, coding help, and question-answering systems. "
+            "They do not automatically know which private document is correct, so systems often combine them with retrieval or guardrails."
+        ),
+        "sq": (
+            "LLM eshte model i madh gjuhesor i trajnuar me shume tekst per te kuptuar dhe gjeneruar gjuhe. "
+            "Ai parashikon tekst te dobishem duke u bazuar ne promptin dhe kontekstin qe merr. "
+            "LLM perdoret ne chat asistente, permbledhje, perkthim, ndihme ne kodim dhe sisteme pyetje-pergjigje. "
+            "Ai nuk e di automatikisht cili dokument privat eshte i sakte, prandaj shpesh kombinohet me retrieval ose guardrails."
+        ),
+    },
+}
+
 CONCEPT_ALIASES = {
-    "genai": ["genai", "generative ai", "gjenerative ai", "ai gjenerative"],
+    "genai": ["genai", "gen ai", "generative ai", "gjenerative ai", "ai gjenerative"],
     "llm": ["llm", "large language model", "modele gjuhesore", "model gjuhesor"],
     "rag": ["rag", "retrieval augmented generation"],
     "embedding": ["embedding", "embeddings", "embedim", "embedime"],
@@ -511,7 +595,7 @@ class GenAIStudyRAG:
             self.chunk_norms.append(norm)
 
     def is_genai_question(self, question):
-        question_lower = question.lower()
+        question_lower = normalize_topic_text(question)
         return any(topic in question_lower for topic in GENAI_TOPICS) or bool(
             self.find_concepts(question)
         )
@@ -535,7 +619,7 @@ class GenAIStudyRAG:
         return re.search(rf"\b{re.escape(alias)}\b", question_lower) is not None
 
     def find_concepts(self, question):
-        question_lower = question.lower()
+        question_lower = normalize_topic_text(question)
         matches = []
 
         for concept, aliases in CONCEPT_ALIASES.items():
@@ -553,20 +637,43 @@ class GenAIStudyRAG:
 
         return matches[:3]
 
+    def is_expansion_request(self, question):
+        question_lower = normalize_topic_text(question)
+        return any(phrase in question_lower for phrase in EXPANSION_PHRASES)
+
+    def is_shorten_request(self, question):
+        question_lower = normalize_topic_text(question)
+        return any(phrase in question_lower for phrase in SHORTEN_PHRASES)
+
+    def clean_output_text(self, text):
+        text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2000-\u200f\u2028-\u202f\u205f\u3000\ufeff]", " ", str(text))
+        return " ".join(text.split())
+
     def direct_concept_answer(self, question, language):
-        question_lower = question.lower()
+        question_lower = normalize_topic_text(question)
         words = set(re.findall(r"[a-zA-ZçÇëË]+", question_lower))
         is_definition_question = bool(words & DEFINITION_WORDS) or "what is" in question_lower
+        wants_more_detail = self.is_expansion_request(question)
+        wants_short_answer = self.is_shorten_request(question)
         concepts = self.find_concepts(question)
 
         if not concepts:
             return None
 
-        if is_definition_question or len(concepts) <= 3:
-            answers = [CONCEPT_DEFINITIONS[concept][language] for concept in concepts]
+        if wants_more_detail or wants_short_answer or is_definition_question or len(concepts) <= 3:
+            if wants_more_detail:
+                source = EXPANDED_CONCEPT_DEFINITIONS
+            elif wants_short_answer:
+                source = SHORT_CONCEPT_DEFINITIONS
+            else:
+                source = CONCEPT_DEFINITIONS
+            answers = [
+                source.get(concept, CONCEPT_DEFINITIONS[concept])[language]
+                for concept in concepts
+            ]
             if len(answers) == 1:
-                return answers[0]
-            return "\n\n".join(answers)
+                return self.clean_output_text(answers[0])
+            return self.clean_output_text("\n\n".join(answers))
 
         return None
 
@@ -723,6 +830,11 @@ class GenAIStudyRAG:
                 answer = self.message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
                 return {"answer": answer, "sources": []}
 
+        direct_answer = self.direct_concept_answer(question, language)
+        if direct_answer:
+            sources = self.retrieve_chunks(question, top_k=2)
+            return {"answer": direct_answer, "sources": sources}
+
         if self.has_uploaded_material():
             retrieved = self.retrieve_chunks(question)
             uploaded_retrieved = [
@@ -730,12 +842,8 @@ class GenAIStudyRAG:
             ]
             if uploaded_retrieved:
                 answer = self.build_fast_answer(question, uploaded_retrieved, language)
+                answer = self.clean_output_text(answer)
                 return {"answer": answer, "sources": uploaded_retrieved}
-
-        direct_answer = self.direct_concept_answer(question, language)
-        if direct_answer:
-            sources = self.retrieve_chunks(question, top_k=2)
-            return {"answer": direct_answer, "sources": sources}
 
         if not retrieved:
             retrieved = self.retrieve_chunks(question)
@@ -743,7 +851,7 @@ class GenAIStudyRAG:
             answer = self.message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
             return {"answer": answer, "sources": []}
 
-        answer = self.build_fast_answer(question, retrieved, language)
+        answer = self.clean_output_text(self.build_fast_answer(question, retrieved, language))
         return {"answer": answer, "sources": retrieved}
 
 

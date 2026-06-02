@@ -1,7 +1,9 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import html
+import importlib
 import os
+import re
 import time
 
 import streamlit as st
@@ -12,7 +14,8 @@ APP_NAME = "AI Study Assistant"
 MLFLOW_EXPERIMENT_NAME = "GenAIStudyAssistant"
 MAX_PARAM_LENGTH = 250
 ENABLE_MLFLOW = os.getenv("ENABLE_MLFLOW", "").lower() in {"1", "true", "yes"}
-QUIZ_FORMAT_VERSION = 5
+QUIZ_FORMAT_VERSION = 10
+GENAI_ONLY_UPLOAD_MESSAGE = "Ky sistem eshte krijuar vetem per GenAI, jo per tjera tema."
 
 
 st.set_page_config(
@@ -233,26 +236,25 @@ def apply_custom_style():
 
 
 @st.cache_resource(show_spinner=False)
-def load_rag_functions():
-    from rag_engine import ask_question, build_index, retrieve_sources
+def load_rag_functions(format_version):
+    import rag_engine
 
-    return build_index, ask_question, retrieve_sources
+    rag_engine = importlib.reload(rag_engine)
+
+    return rag_engine.build_index, rag_engine.ask_question, rag_engine.retrieve_sources
 
 
 @st.cache_resource(show_spinner=False)
-def load_study_functions():
-    from study_tools import (
-        explain_concept,
-        generate_quiz_items,
-        is_genai_material,
-        summarize_text,
-    )
+def load_study_functions(format_version):
+    import study_tools
+
+    study_tools = importlib.reload(study_tools)
 
     return (
-        summarize_text,
-        generate_quiz_items,
-        explain_concept,
-        is_genai_material,
+        study_tools.summarize_text,
+        study_tools.generate_quiz_items,
+        study_tools.explain_concept,
+        study_tools.is_genai_material,
     )
 
 
@@ -289,6 +291,57 @@ def is_material_overview_question(question):
         "summarize the material",
     )
     return any(phrase in normalized for phrase in overview_phrases)
+
+
+def is_more_detail_request(question):
+    normalized = question.lower().strip()
+    phrases = (
+        "trego me shume",
+        "shpjego me shume",
+        "me shume",
+        "ma shume",
+        "me gjate",
+        "me detaje",
+        "hollesisht",
+        "tell me more",
+        "explain more",
+        "more detail",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
+def is_shorter_request(question):
+    normalized = question.lower().strip()
+    phrases = (
+        "me pak",
+        "ma pak",
+        "shkurt",
+        "shkurtimisht",
+        "shume shkurt",
+        "short",
+        "brief",
+        "briefly",
+        "shorter",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
+def last_user_message(messages):
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return message.get("content", "")
+    return ""
+
+
+def resolve_followup_prompt(prompt, messages):
+    if not is_more_detail_request(prompt) and not is_shorter_request(prompt):
+        return prompt
+    if is_genai_material(prompt):
+        return prompt
+    previous_question = last_user_message(messages)
+    if not previous_question:
+        return prompt
+    return f"{previous_question}. {prompt}"
 
 
 def answer_material_overview():
@@ -342,6 +395,11 @@ def reset_quiz_choices():
     for key in list(st.session_state):
         if key.startswith("quiz_choice_"):
             st.session_state.pop(key, None)
+
+
+def clean_option_text(text):
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2000-\u200f\u2028-\u202f\u205f\u3000\ufeff]", " ", str(text))
+    return " ".join(text.split())
 
 
 def short_text(text, max_length=MAX_PARAM_LENGTH):
@@ -420,10 +478,10 @@ def process_material(uploaded_pdf):
         if not uploaded_text:
             raise ValueError("Nuk u gjet tekst i lexueshem ne kete PDF.")
         if not is_genai_material(uploaded_text):
-            raise ValueError(
-                "Ky dokument nuk duket se ka lidhje me Generative AI. "
-                "Ky eshte vetem AI Study Assistant per temat GenAI."
-            )
+            st.session_state["pdf_name"] = ""
+            st.session_state["pdf_text"] = ""
+            st.session_state["documents_ready"] = False
+            raise ValueError(GENAI_ONLY_UPLOAD_MESSAGE)
         pdf_files.append(pdf_path)
         st.session_state["pdf_name"] = uploaded_pdf.name
         st.session_state["pdf_text"] = uploaded_text
@@ -586,6 +644,7 @@ def render_chat(documents_ready):
     if not prompt:
         return
 
+    effective_prompt = resolve_followup_prompt(prompt.strip(), st.session_state["messages"])
     st.session_state["messages"].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -594,13 +653,13 @@ def render_chat(documents_ready):
         with st.spinner("Duke kerkuar ne material..."):
             try:
                 start_time = time.perf_counter()
-                result = ask_question(prompt.strip())
+                result = ask_question(effective_prompt)
                 response_time = time.perf_counter() - start_time
                 answer = result["answer"]
                 st.session_state["answer"] = answer
                 st.session_state["sources"] = result["sources"]
                 st.session_state["last_runtime"] = response_time
-                log_mlflow_event("question", prompt.strip(), answer, response_time)
+                log_mlflow_event("question", effective_prompt, answer, response_time)
             except Exception as exc:
                 answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
                 st.session_state["sources"] = []
@@ -632,6 +691,7 @@ def render_pdf_question_chat():
     if not prompt:
         return
 
+    effective_prompt = resolve_followup_prompt(prompt.strip(), st.session_state["summary_messages"])
     st.session_state["summary_messages"].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -644,13 +704,13 @@ def render_pdf_question_chat():
                     answer = answer_material_overview()
                     sources = []
                 else:
-                    result = ask_question(prompt.strip())
+                    result = ask_question(effective_prompt)
                     answer = result["answer"]
                     sources = result["sources"]
                 response_time = time.perf_counter() - start_time
                 st.session_state["sources"] = sources
                 st.session_state["last_runtime"] = response_time
-                log_mlflow_event("pdf_question", prompt.strip(), answer, response_time)
+                log_mlflow_event("pdf_question", effective_prompt, answer, response_time)
             except Exception as exc:
                 answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
                 st.session_state["sources"] = []
@@ -698,33 +758,38 @@ def render_quiz(quiz_items):
                 st.caption(f"Koncepti: {item['concept']}")
             question = clean_quiz_question(item["question"])
             st.markdown(f"**{index + 1}. {question}**")
+            clean_options = [clean_option_text(option) for option in item["options"]]
+            correct_answer = clean_option_text(item["answer"])
+            selected_key = f"quiz_choice_{index}"
+            if st.session_state.get(selected_key) not in [None, *clean_options]:
+                st.session_state.pop(selected_key, None)
             choice = st.radio(
                 "Zgjidh pergjigjen",
-                item["options"],
+                clean_options,
                 index=None,
-                key=f"quiz_choice_{index}",
+                key=selected_key,
                 label_visibility="collapsed",
             )
 
             if choice:
                 answered_count += 1
-                if choice == item["answer"]:
+                if choice == correct_answer:
                     correct_count += 1
                     st.success("Sakte.")
                 else:
-                    st.error(f"Gabim. Pergjigjja e sakte: {item['answer']}")
+                    st.error(f"Gabim. Pergjigjja e sakte: {correct_answer}")
 
     if answered_count:
         st.caption(f"Rezultati: {correct_count}/{answered_count}")
 
 
-build_index, ask_question, retrieve_sources = load_rag_functions()
+build_index, ask_question, retrieve_sources = load_rag_functions(QUIZ_FORMAT_VERSION)
 (
     summarize_text,
     generate_quiz_items,
     explain_concept,
     is_genai_material,
-) = load_study_functions()
+) = load_study_functions(QUIZ_FORMAT_VERSION)
 
 apply_custom_style()
 try:
@@ -754,7 +819,10 @@ with st.sidebar:
             except Exception as exc:
                 st.session_state["documents_ready"] = False
                 documents_ready = False
-                st.error(f"Nuk u procesua materiali: {exc}")
+                if str(exc) == GENAI_ONLY_UPLOAD_MESSAGE:
+                    st.error(GENAI_ONLY_UPLOAD_MESSAGE)
+                else:
+                    st.error(f"Nuk u procesua materiali: {exc}")
 
     st.divider()
     if documents_ready:
