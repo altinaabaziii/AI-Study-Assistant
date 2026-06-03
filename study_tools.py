@@ -3,9 +3,9 @@ import re
 
 
 OUT_OF_SCOPE_MESSAGE = "This assistant is designed only for Generative AI topics."
-OUT_OF_SCOPE_MESSAGE_SQ = "Ky asistent eshte krijuar vetem per temat e Generative AI."
+OUT_OF_SCOPE_MESSAGE_SQ = "Ky asistent është krijuar vetëm për temat e Generative AI."
 NOT_FOUND_MESSAGE = "I could not find enough information in the study materials."
-NOT_FOUND_MESSAGE_SQ = "Nuk gjeta informacion te mjaftueshem ne materialet e studimit."
+NOT_FOUND_MESSAGE_SQ = "Nuk gjeta informacion të mjaftueshëm në materialet e studimit."
 SUMMARY_SENTENCE_LIMIT = 10
 
 GENAI_CONCEPTS = {
@@ -406,10 +406,10 @@ def clean_quiz_question(question, language=None):
     language = language or detect_language(question)
     question = " ".join(str(question).split())
     replacements = {
-        "Cfare thote PDF-ja per": "Cfare eshte",
-        "Cfare thote PDF per": "Cfare eshte",
-        "Cila fjali mbeshtetet nga PDF-ja?": "Cila fjali eshte e sakte?",
-        "Cila fjali mbeshtetet nga PDF?": "Cila fjali eshte e sakte?",
+        "Cfare thote PDF-ja per": "Çfarë është",
+        "Cfare thote PDF per": "Çfarë është",
+        "Cila fjali mbeshtetet nga PDF-ja?": "Cila fjali është e saktë?",
+        "Cila fjali mbeshtetet nga PDF?": "Cila fjali është e saktë?",
         "What does the PDF say about": "What is",
         "Which statement is supported by the PDF?": "Which statement is correct?",
         "Which point is mentioned in the uploaded material?": "Which point is mentioned in the material?",
@@ -481,7 +481,7 @@ def is_fallback_quiz_sentence(sentence):
 
 
 def clean_subject(subject):
-    subject = re.sub(r"[^A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+", " ", subject)
+    subject = re.sub(r"[^A-Za-z0-9çÇëË./_-]+", " ", subject)
     subject = " ".join(subject.split()).strip(" .,:;")
     words = [word for word in subject.split() if word.lower() not in SUBJECT_STOP_WORDS]
     subject = " ".join(words[:5])
@@ -513,7 +513,7 @@ def sentence_subject(sentence, concepts):
         return "the model"
 
     patterns = [
-        r"^([A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+(?:\s+[A-Za-z0-9Ã§Ã‡Ã«Ã‹çÇëË./_-]+){0,4})\s+(?:eshte|është|jane|janë|perdoret|përdoret|do te thote|do të thotë)\b",
+        r"^([A-Za-z0-9çÇëË./_-]+(?:\s+[A-Za-z0-9çÇëË./_-]+){0,4})\s+(?:eshte|është|jane|janë|perdoret|përdoret|do te thote|do të thotë)\b",
         r"^([A-Za-z0-9./_-]+(?:\s+[A-Za-z0-9./_-]+){0,4})\s+(?:is|are|means|uses|creates|retrieves|stores|checks)\b",
     ]
 
@@ -547,7 +547,7 @@ def definition_quiz_item(sentence, language):
             continue
 
         if language == "sq":
-            return f"Cfare eshte {subject}?", compact_text(sentence)
+            return f"Çfarë është {subject}?", compact_text(sentence)
         return f"What is {subject}?", compact_text(sentence)
 
     return None
@@ -562,7 +562,7 @@ def adaptive_quiz_item(sentence, concepts, language):
     subject = sentence_subject(sentence, concepts)
 
     if language == "sq":
-        return f"Cfare duhet te dish per {subject}?", answer
+        return f"Çfarë duhet të dish për {subject}?", answer
     return f"What should you know about {subject}?", answer
 
 
@@ -831,7 +831,7 @@ def generate_quiz(text):
 
     language = detect_language(text)
     label_question = "Pyetje" if language == "sq" else "Question"
-    label_answer = "Pergjigje" if language == "sq" else "Answer"
+    label_answer = "Përgjigje" if language == "sq" else "Answer"
     lines = []
 
     for index, item in enumerate(quiz_items, start=1):

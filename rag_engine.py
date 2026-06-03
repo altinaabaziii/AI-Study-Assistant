@@ -3,6 +3,8 @@ from collections import Counter
 import math
 import re
 
+import llm_client
+
 KNOWLEDGE_BASE_DIR = Path("data/genai_knowledge_base")
 
 OUT_OF_SCOPE_MESSAGE = "This assistant is designed only for Generative AI topics."
@@ -604,7 +606,8 @@ class GenAIStudyRAG:
         text_lower = text.lower()
         words = set(re.findall(r"[a-zA-ZçÇëË]+", text_lower))
         has_albanian_letters = any(letter in text_lower for letter in ("ç", "ë"))
-        has_albanian_words = bool(words & ALBANIAN_WORDS)
+        ambiguous_words = {"me", "ne", "si", "ku"}
+        has_albanian_words = bool((words & ALBANIAN_WORDS) - ambiguous_words)
         return "sq" if has_albanian_letters or has_albanian_words else "en"
 
     def message(self, english, albanian, language):
@@ -649,6 +652,68 @@ class GenAIStudyRAG:
         text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2000-\u200f\u2028-\u202f\u205f\u3000\ufeff]", " ", str(text))
         return " ".join(text.split())
 
+    def direct_relationship_answer(self, question, language):
+        question_lower = normalize_topic_text(question)
+        concepts = set(self.find_concepts(question))
+
+        if {"rag", "hallucination"} <= concepts:
+            return self.message(
+                (
+                    "RAG helps reduce hallucinations by grounding the answer in retrieved "
+                    "source material. First, the system searches for relevant chunks from "
+                    "the knowledge base or uploaded PDF. Then the LLM uses that context "
+                    "instead of relying only on its internal memory. This makes the answer "
+                    "more likely to match the study material and less likely to invent facts."
+                ),
+                (
+                    "RAG ndihmon në uljen e hallucinations duke e bazuar përgjigjen në "
+                    "material burimor të gjetur. Së pari, sistemi kërkon pjesët relevante "
+                    "nga knowledge base ose PDF-ja. Pastaj LLM përdor atë kontekst në vend "
+                    "që të mbështetet vetëm në memorien e vet. Kjo e bën përgjigjen më të "
+                    "saktë dhe më pak të prirur të shpikë fakte."
+                ),
+                language,
+            )
+
+        if "prompt_engineering" in concepts and any(
+            term in question_lower
+            for term in ("example", "real-world", "real world", "shembull", "praktik")
+        ):
+            return self.message(
+                (
+                    "Example: a student asks, 'Summarize this PDF for a beginner in "
+                    "five bullet points, then create three quiz questions with answers.' "
+                    "That is prompt engineering because the prompt clearly defines the "
+                    "task, audience, format, and expected output."
+                ),
+                (
+                    "Shembull: një student shkruan, 'Përmblidhe këtë PDF për një fillestar "
+                    "në pesë pika, pastaj krijo tri pyetje quiz me përgjigje.' Kjo është "
+                    "prompt engineering sepse prompt-i përcakton qartë detyrën, audiencën, "
+                    "formatin dhe output-in e pritur."
+                ),
+                language,
+            )
+
+        if "rag" in concepts and any(term in question_lower for term in ("why", "pse", "benefit", "help", "ndihmon")):
+            return self.message(
+                (
+                    "RAG is useful because it connects an LLM to relevant external "
+                    "material before generating an answer. This improves grounding, "
+                    "keeps answers closer to the source, and helps the assistant answer "
+                    "questions about documents it was not trained on."
+                ),
+                (
+                    "RAG është i dobishëm sepse e lidh LLM-në me material relevant para "
+                    "gjenerimit të përgjigjes. Kjo e përmirëson grounding, i mban "
+                    "përgjigjet më afër burimit dhe e ndihmon asistentin të përgjigjet "
+                    "për dokumente mbi të cilat modeli nuk është trajnuar."
+                ),
+                language,
+            )
+
+        return None
+
     def direct_concept_answer(self, question, language):
         question_lower = normalize_topic_text(question)
         words = set(re.findall(r"[a-zA-ZçÇëË]+", question_lower))
@@ -660,7 +725,31 @@ class GenAIStudyRAG:
         if not concepts:
             return None
 
-        if wants_more_detail or wants_short_answer or is_definition_question or len(concepts) <= 3:
+        complex_phrases = (
+            "workflow",
+            "combine",
+            "combined",
+            "together",
+            "in one",
+            "step by step",
+            "architecture",
+            "design",
+            "compare",
+            "how would",
+            "how can",
+            "si mund",
+            "rrjedhe",
+            "arkitekture",
+        )
+        is_complex_question = wants_more_detail or any(
+            phrase in question_lower for phrase in complex_phrases
+        )
+        if is_complex_question and not wants_short_answer:
+            return None
+        if len(concepts) > 1 and not wants_short_answer and not is_definition_question:
+            return None
+
+        if wants_short_answer or is_definition_question or len(concepts) <= 3:
             if wants_more_detail:
                 source = EXPANDED_CONCEPT_DEFINITIONS
             elif wants_short_answer:
@@ -820,6 +909,12 @@ class GenAIStudyRAG:
     def has_uploaded_sources(self, sources):
         return any(source.get("kind") == "uploaded" for source in sources)
 
+    def build_answer(self, question, sources, language):
+        llm_answer = llm_client.generate_study_answer(question, sources, language)
+        if llm_answer:
+            return self.clean_output_text(llm_answer), True
+        return self.clean_output_text(self.build_fast_answer(question, sources, language)), False
+
     def answer_question(self, question):
         language = self.detect_language(question)
         retrieved = []
@@ -828,12 +923,17 @@ class GenAIStudyRAG:
             retrieved = self.retrieve_chunks(question, top_k=2)
             if not retrieved:
                 answer = self.message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
-                return {"answer": answer, "sources": []}
+                return {"answer": answer, "sources": [], "used_llm": False}
+
+        relationship_answer = self.direct_relationship_answer(question, language)
+        if relationship_answer:
+            sources = self.retrieve_chunks(question, top_k=2)
+            return {"answer": relationship_answer, "sources": sources, "used_llm": False}
 
         direct_answer = self.direct_concept_answer(question, language)
         if direct_answer:
             sources = self.retrieve_chunks(question, top_k=2)
-            return {"answer": direct_answer, "sources": sources}
+            return {"answer": direct_answer, "sources": sources, "used_llm": False}
 
         if self.has_uploaded_material():
             retrieved = self.retrieve_chunks(question)
@@ -841,18 +941,78 @@ class GenAIStudyRAG:
                 source for source in retrieved if source.get("kind") == "uploaded"
             ]
             if uploaded_retrieved:
-                answer = self.build_fast_answer(question, uploaded_retrieved, language)
-                answer = self.clean_output_text(answer)
-                return {"answer": answer, "sources": uploaded_retrieved}
+                answer, used_llm = self.build_answer(question, uploaded_retrieved, language)
+                return {"answer": answer, "sources": uploaded_retrieved, "used_llm": used_llm}
 
         if not retrieved:
             retrieved = self.retrieve_chunks(question)
         if not retrieved:
+            llm_answer = llm_client.generate_study_answer(question, [], language)
+            if llm_answer:
+                return {
+                    "answer": self.clean_output_text(llm_answer),
+                    "sources": [],
+                    "used_llm": True,
+                }
             answer = self.message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language)
-            return {"answer": answer, "sources": []}
+            return {"answer": answer, "sources": [], "used_llm": False}
 
-        answer = self.clean_output_text(self.build_fast_answer(question, retrieved, language))
-        return {"answer": answer, "sources": retrieved}
+        answer, used_llm = self.build_answer(question, retrieved, language)
+        return {"answer": answer, "sources": retrieved, "used_llm": used_llm}
+
+    def answer_question_stream(self, question):
+        language = self.detect_language(question)
+        retrieved = []
+
+        if not self.is_genai_question(question):
+            retrieved = self.retrieve_chunks(question, top_k=2)
+            if not retrieved:
+                answer = self.message(OUT_OF_SCOPE_MESSAGE, OUT_OF_SCOPE_MESSAGE_SQ, language)
+                return {"answer": answer, "sources": [], "used_llm": False}
+
+        relationship_answer = self.direct_relationship_answer(question, language)
+        if relationship_answer:
+            sources = self.retrieve_chunks(question, top_k=2)
+            return {"answer": relationship_answer, "sources": sources, "used_llm": False}
+
+        direct_answer = self.direct_concept_answer(question, language)
+        if direct_answer:
+            sources = self.retrieve_chunks(question, top_k=2)
+            return {"answer": direct_answer, "sources": sources, "used_llm": False}
+
+        if self.has_uploaded_material():
+            retrieved = self.retrieve_chunks(question)
+            uploaded_retrieved = [
+                source for source in retrieved if source.get("kind") == "uploaded"
+            ]
+            if uploaded_retrieved:
+                return {
+                    "answer_stream": llm_client.stream_study_answer(question, uploaded_retrieved, language),
+                    "fallback_answer": self.clean_output_text(
+                        self.build_fast_answer(question, uploaded_retrieved, language)
+                    ),
+                    "sources": uploaded_retrieved,
+                    "used_llm": True,
+                }
+
+        if not retrieved:
+            retrieved = self.retrieve_chunks(question)
+        if not retrieved:
+            return {
+                "answer_stream": llm_client.stream_study_answer(question, [], language),
+                "fallback_answer": self.message(NOT_FOUND_MESSAGE, NOT_FOUND_MESSAGE_SQ, language),
+                "sources": [],
+                "used_llm": True,
+            }
+
+        return {
+            "answer_stream": llm_client.stream_study_answer(question, retrieved, language),
+            "fallback_answer": self.clean_output_text(
+                self.build_fast_answer(question, retrieved, language)
+            ),
+            "sources": retrieved,
+            "used_llm": True,
+        }
 
 
 rag_engine = GenAIStudyRAG()
@@ -865,6 +1025,10 @@ def build_index(pdf_files=None):
 
 def ask_question(question):
     return rag_engine.answer_question(question)
+
+
+def ask_question_stream(question):
+    return rag_engine.answer_question_stream(question)
 
 
 def retrieve_sources(question, top_k=4):

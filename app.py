@@ -9,13 +9,15 @@ import time
 import streamlit as st
 from pypdf import PdfReader
 
+import llm_client
+
 
 APP_NAME = "AI Study Assistant"
 MLFLOW_EXPERIMENT_NAME = "GenAIStudyAssistant"
 MAX_PARAM_LENGTH = 250
 ENABLE_MLFLOW = os.getenv("ENABLE_MLFLOW", "").lower() in {"1", "true", "yes"}
-QUIZ_FORMAT_VERSION = 10
-GENAI_ONLY_UPLOAD_MESSAGE = "Ky sistem eshte krijuar vetem per GenAI, jo per tjera tema."
+QUIZ_FORMAT_VERSION = 19
+GENAI_ONLY_UPLOAD_MESSAGE = "Ky sistem është krijuar vetëm për GenAI, jo për tema të tjera."
 
 
 st.set_page_config(
@@ -24,6 +26,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+def llm_status_label(used_llm):
+    if not used_llm:
+        return "Fallback lokal"
+    model_name = getattr(llm_client, "ollama_model_name", lambda: "local")()
+    return f"Ollama ({model_name})"
 
 
 def apply_custom_style():
@@ -237,11 +246,18 @@ def apply_custom_style():
 
 @st.cache_resource(show_spinner=False)
 def load_rag_functions(format_version):
+    import llm_client
     import rag_engine
 
+    importlib.reload(llm_client)
     rag_engine = importlib.reload(rag_engine)
 
-    return rag_engine.build_index, rag_engine.ask_question, rag_engine.retrieve_sources
+    return (
+        rag_engine.build_index,
+        rag_engine.ask_question,
+        rag_engine.ask_question_stream,
+        rag_engine.retrieve_sources,
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -261,10 +277,10 @@ def load_study_functions(format_version):
 def clean_quiz_question(question, language=None):
     question = " ".join(str(question).split())
     replacements = {
-        "Cfare thote PDF-ja per": "Cfare eshte",
-        "Cfare thote PDF per": "Cfare eshte",
-        "Cila fjali mbeshtetet nga PDF-ja?": "Cila fjali eshte e sakte?",
-        "Cila fjali mbeshtetet nga PDF?": "Cila fjali eshte e sakte?",
+        "Cfare thote PDF-ja per": "Çfarë është",
+        "Cfare thote PDF per": "Çfarë është",
+        "Cila fjali mbeshtetet nga PDF-ja?": "Cila fjali është e saktë?",
+        "Cila fjali mbeshtetet nga PDF?": "Cila fjali është e saktë?",
         "What does the PDF say about": "What is",
         "Which statement is supported by the PDF?": "Which statement is correct?",
         "Which point is mentioned in the uploaded material?": "Which point is mentioned in the material?",
@@ -446,8 +462,8 @@ def ensure_messages():
             {
                 "role": "assistant",
                 "content": (
-                    "Pershendetje. Upload nje PDF ose perdor bazen GenAI, "
-                    "pastaj bej pyetje. Pergjigjet kthehen nga materiali i procesuar."
+                    "Përshëndetje. Ngarko një PDF ose përdor bazën GenAI, "
+                    "pastaj bëj pyetje. Përgjigjet kthehen nga materiali i procesuar."
                 ),
             }
         ]
@@ -459,8 +475,8 @@ def ensure_summary_messages():
             {
                 "role": "assistant",
                 "content": (
-                    "Kjo pamje eshte vetem per permbledhjen dhe pyetje rreth PDF-se "
-                    "se ngarkuar."
+                    "Kjo pamje është vetëm për përmbledhjen dhe pyetje rreth PDF-së "
+                    "së ngarkuar."
                 ),
             }
         ]
@@ -476,7 +492,7 @@ def process_material(uploaded_pdf):
         pdf_path = save_uploaded_pdf(uploaded_pdf)
         uploaded_text = read_pdf_text(pdf_path)
         if not uploaded_text:
-            raise ValueError("Nuk u gjet tekst i lexueshem ne kete PDF.")
+            raise ValueError("Nuk u gjet tekst i lexueshëm në këtë PDF.")
         if not is_genai_material(uploaded_text):
             st.session_state["pdf_name"] = ""
             st.session_state["pdf_text"] = ""
@@ -530,7 +546,7 @@ def start_new_chat():
 
 def render_topbar(documents_ready):
     material = st.session_state.get("pdf_name") or "Baza GenAI"
-    status = "Gati" if documents_ready else "Duke u pergatitur"
+    status = "Gati" if documents_ready else "Duke u përgatitur"
 
     st.markdown(
         f"""
@@ -538,7 +554,7 @@ def render_topbar(documents_ready):
             <div>
                 <h1>AI Study Assistant</h1>
                 <div class="subtitle">
-                    Pyet shpejt, merr pergjigje nga materiali, krijo permbledhje dhe quiz.
+                    Pyet shpejt, merr përgjigje nga materiali, krijo përmbledhje dhe quiz.
                 </div>
             </div>
             <div class="status-pill">{html.escape(status)} - {html.escape(material)}</div>
@@ -554,15 +570,15 @@ def render_quick_actions(documents_ready):
         <div class="quick-grid">
             <div class="quick-card">
                 <div class="quick-title">Pyetje</div>
-                <div class="quick-copy">Shkruaj poshte dhe merr pergjigje te bazuar ne burime.</div>
+                <div class="quick-copy">Shkruaj poshtë dhe merr përgjigje të bazuar në burime.</div>
             </div>
             <div class="quick-card">
-                <div class="quick-title">Permbledhje PDF</div>
-                <div class="quick-copy">Pas upload-it, nxirr pikat kryesore pa pritur gjate.</div>
+                <div class="quick-title">Përmbledhje PDF</div>
+                <div class="quick-copy">Pas upload-it, nxirr pikat kryesore pa pritur gjatë.</div>
             </div>
             <div class="quick-card">
                 <div class="quick-title">Quiz</div>
-                <div class="quick-copy">Gjenero pyetje me alternativa dhe kontrollo pergjigjet menjehere.</div>
+                <div class="quick-copy">Gjenero pyetje me alternativa dhe kontrollo përgjigjet menjëherë.</div>
             </div>
         </div>
         """,
@@ -578,7 +594,7 @@ def render_quick_actions(documents_ready):
         )
     with col_summary:
         summarize_clicked = st.button(
-            "Permbledh PDF",
+            "Përmbledh PDF",
             disabled=not documents_ready or not st.session_state.get("pdf_text"),
             use_container_width=True,
         )
@@ -595,7 +611,7 @@ def render_quick_actions(documents_ready):
 
     if summarize_clicked:
         should_rerun = False
-        with st.spinner("Duke bere permbledhjen..."):
+        with st.spinner("Duke bërë përmbledhjen..."):
             try:
                 start_time = time.perf_counter()
                 summary = summarize_text(st.session_state["pdf_text"])
@@ -606,7 +622,7 @@ def render_quick_actions(documents_ready):
                 log_mlflow_event("summary", st.session_state["pdf_name"], summary, response_time)
                 should_rerun = True
             except Exception as exc:
-                st.error(f"Nuk u krijua permbledhja: {exc}")
+                st.error(f"Nuk u krijua përmbledhja: {exc}")
         if should_rerun:
             st.rerun()
 
@@ -637,7 +653,7 @@ def render_chat(documents_ready):
             st.markdown(message["content"])
 
     prompt = st.chat_input(
-        "Bej nje pyetje per materialin...",
+        "Bëj një pyetje për materialin...",
         disabled=not documents_ready,
     )
 
@@ -650,24 +666,36 @@ def render_chat(documents_ready):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Duke kerkuar ne material..."):
+        with st.empty():
             try:
                 start_time = time.perf_counter()
-                result = ask_question(effective_prompt)
+                result = ask_question_stream(effective_prompt)
+                if result.get("answer_stream") is not None:
+                    st.caption(f"Duke gjeneruar me {llm_status_label(True)}...")
+                    answer = st.write_stream(result["answer_stream"])
+                    if not answer:
+                        answer = result.get("fallback_answer", "")
+                        st.markdown(answer)
+                        result["used_llm"] = False
+                else:
+                    answer = result["answer"]
+                    st.markdown(answer)
                 response_time = time.perf_counter() - start_time
-                answer = result["answer"]
                 st.session_state["answer"] = answer
+                st.session_state["used_llm"] = result.get("used_llm", False)
                 st.session_state["sources"] = result["sources"]
                 st.session_state["last_runtime"] = response_time
                 log_mlflow_event("question", effective_prompt, answer, response_time)
             except Exception as exc:
-                answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
+                answer = f"Nuk munda t'i përgjigjem pyetjes: {exc}"
+                st.markdown(answer)
+                st.session_state["used_llm"] = False
                 st.session_state["sources"] = []
 
-        st.markdown(answer)
         if st.session_state.get("last_runtime") is not None:
             st.markdown(
-                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s</div>",
+                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s"
+                f" · LLM: {llm_status_label(st.session_state.get('used_llm'))}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -677,13 +705,13 @@ def render_chat(documents_ready):
 def render_pdf_question_chat():
     ensure_summary_messages()
 
-    st.subheader("Pyetje rreth PDF-se")
+    st.subheader("Pyetje rreth PDF-së")
     for message in st.session_state["summary_messages"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
     prompt = st.chat_input(
-        "Pyet vetem rreth PDF-se se ngarkuar...",
+        "Pyet vetëm rreth PDF-së së ngarkuar...",
         disabled=not st.session_state.get("pdf_text"),
         key="summary_chat_input",
     )
@@ -697,28 +725,32 @@ def render_pdf_question_chat():
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Duke kerkuar ne PDF dhe bazen GenAI..."):
+        with st.spinner("Duke kërkuar në PDF dhe bazën GenAI..."):
             try:
                 start_time = time.perf_counter()
                 if is_material_overview_question(prompt):
                     answer = answer_material_overview()
                     sources = []
+                    st.session_state["used_llm"] = False
                 else:
                     result = ask_question(effective_prompt)
                     answer = result["answer"]
                     sources = result["sources"]
+                    st.session_state["used_llm"] = result.get("used_llm", False)
                 response_time = time.perf_counter() - start_time
                 st.session_state["sources"] = sources
                 st.session_state["last_runtime"] = response_time
                 log_mlflow_event("pdf_question", effective_prompt, answer, response_time)
             except Exception as exc:
-                answer = f"Nuk munda ta pergjigjem pyetjen: {exc}"
+                answer = f"Nuk munda t'i përgjigjem pyetjes: {exc}"
+                st.session_state["used_llm"] = False
                 st.session_state["sources"] = []
 
         st.markdown(answer)
         if st.session_state.get("last_runtime") is not None:
             st.markdown(
-                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s</div>",
+                f"<div class='result-meta'>Koha: {st.session_state['last_runtime']:.2f}s"
+                f" · LLM: {llm_status_label(st.session_state.get('used_llm'))}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -729,7 +761,7 @@ def render_summary():
     if not st.session_state.get("summary"):
         return
 
-    st.subheader("Permbledhje")
+    st.subheader("Përmbledhje")
     st.markdown(st.session_state["summary"])
     render_pdf_question_chat()
 
@@ -746,7 +778,7 @@ def render_quiz(quiz_items):
         st.session_state.pop("quiz", None)
         reset_quiz_choices()
         st.session_state["view"] = "chat"
-        st.warning("Quiz-i i vjeter u pastrua. Kliko `Gjenero Quiz` perseri per versionin e ri.")
+        st.warning("Quiz-i i vjetër u pastrua. Kliko `Gjenero Quiz` përsëri për versionin e ri.")
         return
 
     correct_count = 0
@@ -764,7 +796,7 @@ def render_quiz(quiz_items):
             if st.session_state.get(selected_key) not in [None, *clean_options]:
                 st.session_state.pop(selected_key, None)
             choice = st.radio(
-                "Zgjidh pergjigjen",
+                "Zgjidh përgjigjen",
                 clean_options,
                 index=None,
                 key=selected_key,
@@ -775,15 +807,15 @@ def render_quiz(quiz_items):
                 answered_count += 1
                 if choice == correct_answer:
                     correct_count += 1
-                    st.success("Sakte.")
+                    st.success("Saktë.")
                 else:
-                    st.error(f"Gabim. Pergjigjja e sakte: {correct_answer}")
+                    st.error(f"Gabim. Përgjigjja e saktë: {correct_answer}")
 
     if answered_count:
         st.caption(f"Rezultati: {correct_count}/{answered_count}")
 
 
-build_index, ask_question, retrieve_sources = load_rag_functions(QUIZ_FORMAT_VERSION)
+build_index, ask_question, ask_question_stream, retrieve_sources = load_rag_functions(QUIZ_FORMAT_VERSION)
 (
     summarize_text,
     generate_quiz_items,
@@ -796,7 +828,7 @@ try:
     ensure_default_material_ready()
 except Exception as exc:
     st.session_state["documents_ready"] = False
-    st.error(f"Nuk u pergatit baza GenAI: {exc}")
+    st.error(f"Nuk u përgatit baza GenAI: {exc}")
 
 documents_ready = st.session_state.get("documents_ready", False)
 
@@ -811,11 +843,11 @@ with st.sidebar:
         st.rerun()
 
     if process_documents:
-        with st.spinner("Duke lexuar PDF dhe duke ndertuar indeksin..."):
+        with st.spinner("Duke lexuar PDF dhe duke ndërtuar indeksin..."):
             try:
                 process_material(uploaded_pdf)
                 documents_ready = True
-                st.success("Materiali eshte gati.")
+                st.success("Materiali është gati.")
             except Exception as exc:
                 st.session_state["documents_ready"] = False
                 documents_ready = False
@@ -826,10 +858,10 @@ with st.sidebar:
 
     st.divider()
     if documents_ready:
-        st.success("Gati per pyetje")
+        st.success("Gati për pyetje")
         st.caption(st.session_state.get("pdf_name") or "Baza GenAI")
     else:
-        st.info("Baza GenAI po pergatitet. PDF eshte opsional.")
+        st.info("Baza GenAI po përgatitet. PDF është opsional.")
 
     if st.session_state.get("last_runtime") is not None:
         st.caption(f"Operacioni i fundit: {st.session_state['last_runtime']:.2f}s")
